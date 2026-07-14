@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Pencatatan Arsip SPHAT</title>
+    <meta name="description" content="Aplikasi Pencatatan Arsip Surat Pengakuan Hak Atas Tanah (SPHAT)">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* ===== CSS RESET & VARIABLES ===== */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            /* COLOR PALETTE INSPIRED BY REFERENCE IMAGE */
+            --primary: #00883e;        /* Deep Green */
+            --primary-dark: #00662d;   /* Darker Green for hover */
+            --secondary: #ffd000;      /* Accent Yellow */
+            --secondary-dark: #e6bc00; 
+            
+            --bg-body: #f4f7f6;        /* Light grayish background */
+            --bg-white: #ffffff;
+            
+            --text-main: #333333;      /* Dark text for readability */
+            --text-light: #666666;     /* Muted text */
+            --text-white: #ffffff;
+            
+            --border: #e2e8f0;
+            --border-focus: #00883e;
+            
+            --danger: #dc3545;
+            --danger-hover: #c82333;
+            
+            --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.08);
+            --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.12);
+            --shadow-header: 0 2px 10px rgba(0, 0, 0, 0.1);
+            
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --transition: all 0.3s ease;
+        }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            min-height: 100vh;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            display: flex;
+            flex-direction: column;
+        }
+
+
+        /* ===== HEADER & NAVIGATION ===== */
+        .app-header {
+            background-color: var(--primary);
+            color: var(--text-white);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--shadow-header);
+        }
+
+        .header-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 80px;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background-color: var(--bg-white);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            color: var(--primary);
+        }
+
+        .logo-text h1 {
+            font-size: 18px;
+            font-weight: 800;
+            line-height: 1.2;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .logo-text span {
+            font-size: 11px;
+            font-weight: 500;
+            opacity: 0.9;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 24px;
+            height: 100%;
+        }
+
+        .nav-tab {
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.8);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            height: 100%;
+            padding: 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 4px solid transparent;
+            transition: var(--transition);
+        }
+
+        .nav-tab:hover {
+            color: var(--text-white);
+        }
+
+        .nav-tab.active {
+            color: var(--text-white);
+            border-bottom-color: var(--secondary);
+        }
+
+        /* ===== HERO BANNER (Optional flair) ===== */
+        .hero-banner {
+            background: linear-gradient(rgba(0, 102, 45, 0.85), rgba(0, 136, 62, 0.85)), url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" opacity="0.1"><rect width="100" height="100" fill="%23fff"/></svg>');
+            padding: 40px 24px;
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        .hero-banner h2 {
+            color: var(--secondary);
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .hero-banner p {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        /* ===== MAIN CONTENT ===== */
+        .main-content {
+            flex: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 0 24px 40px;
+        }
+
+        .page { display: none; }
+        .page.active { display: block; animation: fadeIn 0.4s ease; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ===== STATS BAR ===== */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: var(--bg-white);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            text-align: center;
+            box-shadow: var(--shadow-card);
+            border-bottom: 4px solid var(--primary);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: var(--text-light);
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+
+        /* ===== TOOLBAR & FILTER ===== */
+        .data-toolbar {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            align-items: center;
+            background: var(--bg-white);
+            padding: 16px;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-card);
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 250px;
+            position: relative;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 16px 12px 40px;
+            background: var(--bg-body);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 14px;
+            color: var(--text-main);
+            transition: var(--transition);
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(0, 136, 62, 0.15);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-light);
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .filter-group select {
+            padding: 12px 36px 12px 16px;
+            background: var(--bg-body);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 14px;
+            color: var(--text-main);
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 14px center;
+            cursor: pointer;
+        }
+
+        .filter-group select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        /* ===== DATA LIST (GRID STYLE LIKE IMAGE) ===== */
+        .data-list {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+
+        .data-card {
+            background: var(--bg-white);
+            border-radius: var(--radius-md);
+            padding: 24px;
+            box-shadow: var(--shadow-card);
+            transition: var(--transition);
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            border-top: 4px solid transparent;
+        }
+
+        .data-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-hover);
+            border-top-color: var(--primary);
+        }
+
+        .card-date {
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .card-title {
+            color: var(--text-main);
+            font-weight: 800;
+            font-size: 18px;
+            line-height: 1.3;
+            margin-bottom: 4px;
+        }
+
+        .card-subtitle {
+            color: var(--secondary-dark);
+            font-weight: 600;
+            font-size: 12px;
+            margin-bottom: 16px;
+        }
+
+        .card-body-grid {
+            display: grid;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex: 1;
+        }
+
+        .card-info {
+            font-size: 13px;
+            color: var(--text-main);
+            background: var(--bg-body);
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+
+        .card-info .info-label {
+            display: block;
+            font-size: 10px;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: var(--text-light);
+            margin-bottom: 2px;
+        }
+
+        .card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .badge-pdf {
+            background-color: #e8f5e9;
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-action {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-white);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+        }
+        
+        .btn-action:hover {
+            background: var(--bg-body);
+            border-color: var(--primary);
+        }
+
+        /* ===== PAGINATION ===== */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            margin-top: 40px;
+        }
+
+        .pagination button {
+            width: 40px;
+            height: 40px;
+            background: var(--bg-white);
+            border: 1px solid var(--primary);
+            color: var(--primary);
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: rgba(0, 136, 62, 0.1);
+        }
+
+        .pagination button.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .pagination button:disabled {
+            border-color: var(--border);
+            color: var(--text-light);
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .page-info {
+            display: block;
+            text-align: center;
+            width: 100%;
+            margin-top: 12px;
+            font-size: 13px;
+            color: var(--text-light);
+        }
+
+        /* ===== BUTTONS ===== */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border: none;
+            border-radius: var(--radius-md);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 12px rgba(0, 136, 62, 0.2);
+        }
+        .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); }
+
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #218838; }
+
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: var(--danger-hover); }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--primary);
+            border: 1.5px solid var(--primary);
+        }
+        .btn-outline:hover { background: rgba(0, 136, 62, 0.05); }
+
+        .btn-sm { padding: 8px 16px; font-size: 13px; }
+
+        /* ===== FORM STYLES ===== */
+        .form-section {
+            background: var(--bg-white);
+            border-radius: var(--radius-lg);
+            padding: 30px;
+            margin-top: 20px;
+            box-shadow: var(--shadow-card);
+        }
+
+        .form-section-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--bg-body);
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .form-group { display: flex; flex-direction: column; gap: 8px; }
+        .form-group.full-width { grid-column: 1 / -1; }
+
+        .form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+        .form-group label .required { color: var(--danger); margin-left: 4px; }
+
+        .form-control {
+            background: var(--bg-body);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 12px 16px;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 14px;
+            transition: var(--transition);
+        }
+        .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0,136,62,0.15); }
+        textarea.form-control { resize: vertical; min-height: 100px; }
+
+        /* File Upload */
+        .file-upload-area {
+            border: 2px dashed var(--border);
+            border-radius: var(--radius-md);
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            background: var(--bg-body);
+            transition: var(--transition);
+        }
+        .file-upload-area:hover, .file-upload-area.dragover { border-color: var(--primary); background: rgba(0,136,62,0.05); }
+        .file-upload-area .upload-icon { font-size: 32px; margin-bottom: 12px; }
+        .file-upload-area .file-name { color: var(--primary); font-weight: 700; margin-top: 12px; }
+        .file-upload-area input[type="file"] { display: none; }
+
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 30px;
+            justify-content: flex-end;
+        }
+
+
+        /* ===== FOOTER (Like Reference) ===== */
+        .app-footer {
+            background-color: var(--primary);
+            color: var(--text-white);
+            padding: 40px 24px 20px;
+            margin-top: auto;
+        }
+        .footer-grid {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        .footer-col h4 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: var(--secondary);
+        }
+        .footer-col p {
+            font-size: 13px;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+
+        /* ===== MODAL & TOASTS ===== */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 200;
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--bg-white); border-radius: var(--radius-lg);
+            width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2); animation: modalIn 0.3s ease;
+        }
+        @keyframes modalIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .modal-header { padding: 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .modal-header h2 { font-size: 20px; color: var(--primary); }
+        .modal-body { padding: 24px; }
+        .modal-footer { padding: 20px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 12px; background: var(--bg-body); }
+        
+        /* Detail Modal specific */
+        .detail-row { margin-bottom: 16px; }
+        .detail-label { font-size: 11px; font-weight: 700; color: var(--text-light); text-transform: uppercase; margin-bottom: 4px; }
+        .detail-value { font-size: 15px; color: var(--text-main); font-weight: 500; background: var(--bg-body); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border); }
+
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 300; display: flex; flex-direction: column; gap: 10px; }
+        .toast { background: var(--bg-white); border-radius: var(--radius-md); padding: 16px 20px; display: flex; align-items: center; gap: 12px; box-shadow: var(--shadow-hover); border-left: 4px solid var(--primary); min-width: 300px; animation: toastIn 0.3s ease; }
+        .toast.error { border-left-color: var(--danger); }
+        .toast.warning { border-left-color: var(--secondary); }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+
+        /* Sync Indicator */
+        .sync-status {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: var(--bg-white);
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-size: 12px;
+            font-weight: 600;
+            box-shadow: var(--shadow-card);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 90;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 900px) {
+            .data-list { grid-template-columns: repeat(2, 1fr); }
+            .footer-grid { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 600px) {
+            .header-container { flex-direction: column; height: auto; padding: 16px; gap: 12px; }
+            .nav-tabs { width: 100%; justify-content: center; gap: 16px; overflow-x: auto; padding-bottom: 4px; }
+            .nav-tab { padding: 8px 0; font-size: 13px; flex-shrink: 0; }
+            .data-list { grid-template-columns: 1fr; }
+            .footer-grid { grid-template-columns: 1fr; text-align: center; gap: 20px; }
+            .data-toolbar { flex-direction: column; align-items: stretch; }
+            .filter-group { flex-direction: column; align-items: stretch; }
+            .sync-status { bottom: 20px; top: auto; left: 50%; right: auto; transform: translateX(-50%); font-size: 11px; padding: 6px 12px; }
+            .hero-banner { padding: 30px 16px; margin-bottom: 20px; }
+            .hero-banner h2 { font-size: 20px; }
+            .form-grid { grid-template-columns: 1fr; }
+            .form-section { padding: 20px 16px; margin-top: 16px; }
+            .toast-container { right: 0; left: 0; align-items: center; width: 100%; pointer-events: none; }
+            .toast { min-width: 0; width: 90%; max-width: 400px; font-size: 13px; pointer-events: auto; }
+            .modal { max-width: 95%; margin: 10px auto; }
+            .modal-header, .modal-body, .modal-footer { padding: 16px; }
+            .main-content { padding: 0 16px 80px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- SYNC INDICATOR -->
+    <div class="sync-status" id="sync-indicator">
+        <span>⚫</span> Offline Mode
+    </div>
+
+    <!-- HEADER -->
+    <header class="app-header">
+        <div class="header-container">
+            <div class="logo-section">
+                <div class="logo-icon">🏛️</div>
+                <div class="logo-text">
+                    <h1>ARSIP SPHAT</h1>
+                    <span>Sistem Pencatatan Hak Atas Tanah</span>
+                </div>
+            </div>
+            <nav class="nav-tabs">
+                <button class="nav-tab active" data-page="page-data" id="nav-data">Data Arsip</button>
+                <button class="nav-tab" data-page="page-form" id="nav-form">Tambah Arsip</button>            </nav>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+        <!-- PAGE: DATA LIST -->
+        <div class="page active" id="page-data">
+            
+            <div class="hero-banner">
+                <h2>BERITA & ARSIP</h2>
+                <p>Pengumuman, Data, dan Kegiatan Seputar SPHAT</p>
+            </div>
+
+            <div class="stats-bar">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total">0</div>
+                    <div class="stat-label">Total Arsip</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-year">0</div>
+                    <div class="stat-label">Tahun Ini</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-pdf">0</div>
+                    <div class="stat-label">Ada Lampiran</div>
+                </div>
+            </div>
+
+            <div class="data-toolbar">
+                <div class="search-box">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="search-input" placeholder="Cari data pemilik, lokasi, NIK...">
+                </div>
+                <div class="filter-group">
+                    <select id="filter-year">
+                        <option value="">Semua Tahun</option>
+                    </select>
+                    <select id="filter-sort">
+                        <option value="newest">Terbaru</option>
+                        <option value="oldest">Terlama</option>
+                        <option value="name-asc">Nama A-Z</option>
+                    </select>
+                    <button class="btn btn-outline btn-sm" onclick="exportCSV()">📊 Export CSV</button>
+                </div>
+            </div>
+
+            <div class="data-list" id="data-list">
+                <!-- Data cards will be rendered here by JS -->
+            </div>
+            
+            <div id="pagination-wrapper">
+                <div class="pagination" id="pagination"></div>
+                <div class="page-info" id="page-info-text"></div>
+            </div>
+        </div>
+
+        <!-- PAGE: FORM -->
+        <div class="page" id="page-form">
+            <form id="arsip-form" autocomplete="off">
+                <div class="form-section">
+                    <div class="form-section-title">Informasi Arsip SPHAT</div>
+                    <div class="form-grid">
+                        <div class="form-group full-width">
+                            <label>Judul Arsip <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="f-judul" required placeholder="Contoh: SPHAT Lahan Pertanian Desa">
+                        </div>
+                        <div class="form-group">
+                            <label>Tanggal Pembukaan <span class="required">*</span></label>
+                            <input type="date" class="form-control" id="f-tanggal" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Nomor Surat <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="f-nomor" required placeholder="590/SPHAT/2026">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">Informasi Tanah & Pemilik</div>
+                    <div class="form-grid">
+                        <div class="form-group full-width">
+                            <label>Lokasi Objek Tanah <span class="required">*</span></label>
+                            <textarea class="form-control" id="f-lokasi" required placeholder="Alamat lengkap lokasi tanah"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Nama Pemilik <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="f-pemilik" required placeholder="Nama lengkap">
+                        </div>
+                        <div class="form-group">
+                            <label>NIK Pemilik <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="f-nik" required placeholder="16 digit angka NIK" maxlength="16">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">Keterangan Tambahan</div>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Asal Usul Surat <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="f-asal" required placeholder="Warisan, Jual Beli, dll">
+                        </div>
+                        <div class="form-group">
+                            <label>Pejabat Penandatangan <span class="required">*</span></label>
+                            <input type="text" class="form-control" id="f-pejabat" required placeholder="Nama Pejabat">
+                        </div>
+                        <div class="form-group full-width">
+                            <label>Lampiran PDF (Opsional)</label>
+                            <div class="file-upload-area" id="file-upload-area">
+                                <div class="upload-icon">📎</div>
+                                <p>Klik atau seret file PDF ke sini</p>
+                                <div class="file-name" id="file-name-display" style="display:none;"></div>
+                                <input type="file" id="f-lampiran" accept=".pdf">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <input type="hidden" id="f-edit-id" value="">
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-outline" onclick="resetForm()">Reset</button>
+                    <button type="submit" class="btn btn-primary" id="btn-submit">Simpan Arsip</button>
+                </div>
+            </form>
+        </div>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="app-footer">
+        <div class="footer-grid">
+            <div class="footer-col">
+                <div class="logo-section" style="margin-bottom: 16px;">
+                    <div class="logo-icon" style="width:36px; height:36px; font-size:18px;">🏛️</div>
+                    <div class="logo-text">
+                        <h1 style="font-size:16px;">ARSIP SPHAT</h1>
+                    </div>
+                </div>
+                <p>Sistem pencatatan dan pengelolaan arsip Surat Pengakuan Hak Atas Tanah yang mudah, cepat, dan terpusat.</p>
+            </div>
+            <div class="footer-col">
+                <h4>Akses Cepat</h4>
+                <p>Data Arsip</p>
+                <p>Tambah Data Baru</p>
+                <p>Panduan Penggunaan</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- DETAIL MODAL -->
+    <div class="modal-overlay" id="detail-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Detail Arsip SPHAT</h2>
+                <button class="btn-action" onclick="closeModal('detail-modal')" style="border:none; font-size:20px;">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="detail-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('detail-modal')">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- JAVASCRIPT (LOGIC TETAP SAMA, HANYA UPDATE TEMPLATE HTML CARD) -->
+    <script>
+        const STORAGE_KEY = 'sphat_archives';
+        const ITEMS_PER_PAGE = 9; // Changed to 9 to fit 3-column grid nicely
+        let currentPage = 1;
+
+        // Cloud settings
+        function getCloudSettings() {
+            // UNTUK ADMIN: Jika ingin aplikasi terhubung ke internet secara otomatis,
+            // isi apiKey dan binId di bawah ini (Hapus tanda kutip kosong, isi dengan key).
+            return {
+                apiKey: '', // Masukkan JSONBin API Key di sini
+                binId: ''   // Masukkan JSONBin Bin ID di sini
+            };
+        }
+
+        function updateSyncIndicator() {
+            const ind = document.getElementById('sync-indicator');
+            const settings = getCloudSettings();
+            if (settings.apiKey && settings.binId) {
+                ind.style.color = 'var(--primary)';
+                ind.innerHTML = '<span>🟢</span> Cloud Aktif';
+            } else {
+                ind.style.color = 'var(--text-light)';
+                ind.innerHTML = '<span>⚫</span> Offline Mode';
+            }
+        }
+
+        async function syncToCloudSilent(data) {
+            const settings = getCloudSettings();
+            if (!settings.apiKey || !settings.binId) return;
+            const ind = document.getElementById('sync-indicator');
+            ind.innerHTML = '<span>🟡</span> Menyinkronkan...';
+            try {
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${settings.binId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'X-Master-Key': settings.apiKey },
+                    body: JSON.stringify(data)
+                });
+                if (response.ok) ind.innerHTML = '<span>🟢</span> Cloud Tersinkron';
+                else ind.innerHTML = '<span>🔴</span> Gagal Sinkron';
+            } catch (e) { ind.innerHTML = '<span>🔴</span> Gagal Sinkron'; }
+        }
+
+        async function syncToCloud() {
+            const settings = getCloudSettings();
+            if (!settings.apiKey || !settings.binId) return showToast('API Key belum diatur!', 'error');
+            showToast('Mengirim data ke cloud...');
+            const data = loadData();
+            try {
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${settings.binId}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Master-Key': settings.apiKey },
+                    body: JSON.stringify(data)
+                });
+                if (response.ok) showToast('Data berhasil didorong!');
+                else showToast('Gagal sinkronisasi.', 'error');
+            } catch (e) { showToast('Error koneksi.', 'error'); }
+        }
+
+        async function syncFromCloud() {
+            const settings = getCloudSettings();
+            if (!settings.apiKey || !settings.binId) return showToast('API Key belum diatur!', 'error');
+            showToast('Mengunduh data...');
+            try {
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${settings.binId}/latest`, {
+                    headers: { 'X-Master-Key': settings.apiKey }
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    if (Array.isArray(result.record)) {
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(result.record));
+                        init();
+                        showToast('Data berhasil ditarik!');
+                    }
+                } else showToast('Gagal menarik data.', 'error');
+            } catch (e) { showToast('Error koneksi.', 'error'); }
+        }
+
+        function loadData() {
+            try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } 
+            catch { return []; }
+        }
+
+        function saveData(data) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            syncToCloudSilent(data);
+        }
+
+        function generateId() { return Date.now().toString(36) + Math.random().toString(36).substring(2, 8); }
+
+        function showToast(msg, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<strong>${type==='error'?'⚠️':'✅'}</strong> ${msg}`;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        // Navigation
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.nav-tab, .page').forEach(el => el.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.page).classList.add('active');
+                window.scrollTo(0,0);
+            });
+        });
+
+        function switchToPage(pageId) {
+            document.querySelectorAll('.nav-tab, .page').forEach(el => el.classList.remove('active'));
+            document.querySelector(`[data-page="${pageId}"]`).classList.add('active');
+            document.getElementById(pageId).classList.add('active');
+        }
+
+        // Render functions
+        function updateStats() {
+            const data = loadData();
+            document.getElementById('stat-total').textContent = data.length;
+            document.getElementById('stat-year').textContent = data.filter(d => new Date(d.tanggal).getFullYear() === new Date().getFullYear()).length;
+            document.getElementById('stat-pdf').textContent = data.filter(d => d.lampiran).length;
+        }
+
+        function updateYearFilter() {
+            const data = loadData();
+            const years = [...new Set(data.map(d => new Date(d.tanggal).getFullYear()))].sort((a,b)=>b-a);
+            const select = document.getElementById('filter-year');
+            const current = select.value;
+            select.innerHTML = '<option value="">Semua Tahun</option>' + years.map(y => `<option value="${y}" ${current==y?'selected':''}>${y}</option>`).join('');
+        }
+
+        function renderData() {
+            const data = loadData();
+            const search = document.getElementById('search-input').value.toLowerCase();
+            const yearFilter = document.getElementById('filter-year').value;
+            const sort = document.getElementById('filter-sort').value;
+
+            let filtered = data.filter(item => {
+                const ms = !search || Object.values(item).some(v => String(v).toLowerCase().includes(search));
+                const my = !yearFilter || new Date(item.tanggal).getFullYear().toString() === yearFilter;
+                return ms && my;
+            });
+
+            filtered.sort((a, b) => {
+                if(sort === 'oldest') return new Date(a.tanggal) - new Date(b.tanggal);
+                if(sort === 'name-asc') return a.pemilik.localeCompare(b.pemilik);
+                return new Date(b.tanggal) - new Date(a.tanggal);
+            });
+
+            const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+            if (currentPage > totalPages) currentPage = totalPages;
+            const paged = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
+            const container = document.getElementById('data-list');
+            
+            if (filtered.length === 0) {
+                container.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-light);">Tidak ada arsip ditemukan.</div>`;
+                document.getElementById('pagination').innerHTML = '';
+                document.getElementById('page-info-text').innerHTML = '';
+                return;
+            }
+
+            container.innerHTML = paged.map(item => {
+                const dateStr = new Date(item.tanggal).toLocaleDateString('id-ID', {day:'2-digit', month:'2-digit', year:'numeric'});
+                return `
+                    <div class="data-card" onclick="showDetail('${item.id}')">
+                        <div class="card-date">${dateStr}</div>
+                        <div class="card-title">${escapeHtml(item.judul)}</div>
+                        <div class="card-subtitle">${escapeHtml(item.nomor)}</div>
+                        
+                        <div class="card-body-grid">
+                            <div class="card-info"><span class="info-label">Pemilik</span>${escapeHtml(item.pemilik)}</div>
+                            <div class="card-info"><span class="info-label">Lokasi</span>${escapeHtml(item.lokasi)}</div>
+                        </div>
+                        
+                        <div class="card-footer">
+                            ${item.lampiran ? '<span class="badge-pdf">📎 Lampiran</span>' : '<span></span>'}
+
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            renderPagination(totalPages, filtered.length);
+        }
+
+        function renderPagination(totalPages, totalItems) {
+            const container = document.getElementById('pagination');
+            if (totalPages <= 1) { container.innerHTML = ''; document.getElementById('page-info-text').textContent = ''; return; }
+            
+            let html = `<button ${currentPage===1?'disabled':''} onclick="goToPage(${currentPage-1})">‹</button>`;
+            for (let i = 1; i <= totalPages; i++) {
+                if (i===1 || i===totalPages || (i>=currentPage-1 && i<=currentPage+1)) {
+                    html += `<button class="${i===currentPage?'active':''}" onclick="goToPage(${i})">${i}</button>`;
+                } else if (i===currentPage-2 || i===currentPage+2) {
+                    html += `<button disabled>…</button>`;
+                }
+            }
+            html += `<button ${currentPage===totalPages?'disabled':''} onclick="goToPage(${currentPage+1})">›</button>`;
+            container.innerHTML = html;
+            document.getElementById('page-info-text').textContent = `Menampilkan halaman ${currentPage} dari ${totalPages} (${totalItems} arsip)`;
+        }
+
+        function goToPage(page) { currentPage = page; renderData(); window.scrollTo(0,0); }
+        function escapeHtml(str) { const d=document.createElement('div'); d.textContent=str||''; return d.innerHTML; }
+
+        // Modal
+        function showDetail(id) {
+            const item = loadData().find(d => d.id === id);
+            if (!item) return;
+            const dateStr = new Date(item.tanggal).toLocaleDateString('id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+            
+            document.getElementById('detail-content').innerHTML = `
+                <div class="detail-row"><div class="detail-label">Judul Arsip</div><div class="detail-value">${escapeHtml(item.judul)}</div></div>
+                <div class="detail-row"><div class="detail-label">Nomor Surat</div><div class="detail-value">${escapeHtml(item.nomor)}</div></div>
+                <div class="detail-row"><div class="detail-label">Tanggal Pembukaan</div><div class="detail-value">${dateStr}</div></div>
+                <div class="detail-row"><div class="detail-label">Pemilik (NIK)</div><div class="detail-value">${escapeHtml(item.pemilik)} - ${escapeHtml(item.nik)}</div></div>
+                <div class="detail-row"><div class="detail-label">Lokasi</div><div class="detail-value">${escapeHtml(item.lokasi)}</div></div>
+                <div class="detail-row"><div class="detail-label">Asal Usul & Pejabat</div><div class="detail-value">${escapeHtml(item.asal)} <br>Oleh: ${escapeHtml(item.pejabat)}</div></div>
+                ${item.lampiran ? `<div class="detail-row"><div class="detail-label">Lampiran</div><div class="detail-value"><a href="${item.lampiran}" download="${item.lampiranName}" style="color:var(--primary); font-weight:bold;">📎 Unduh PDF</a></div></div>` : ''}
+            `;
+
+            openModal('detail-modal');
+        }
+
+        // Form
+        document.getElementById('arsip-form').addEventListener('submit', async e => {
+            e.preventDefault();
+            const editId = document.getElementById('f-edit-id').value;
+            const data = loadData();
+            const nik = document.getElementById('f-nik').value.trim();
+            
+            let lampiranData = null, lampiranName = null;
+            const fileInput = document.getElementById('f-lampiran');
+            if (fileInput.files.length > 0) {
+                try {
+                    lampiranData = await new Promise((res, rej) => { const r = new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(fileInput.files[0]); });
+                    lampiranName = fileInput.files[0].name;
+                } catch { return showToast('Gagal membaca PDF', 'error'); }
+            }
+
+            const entry = {
+                id: editId || generateId(),
+                judul: document.getElementById('f-judul').value, tanggal: document.getElementById('f-tanggal').value,
+                nomor: document.getElementById('f-nomor').value, lokasi: document.getElementById('f-lokasi').value,
+                pemilik: document.getElementById('f-pemilik').value, nik: nik, asal: document.getElementById('f-asal').value,
+                pejabat: document.getElementById('f-pejabat').value,
+                lampiran: lampiranData || (editId ? data.find(d=>d.id===editId)?.lampiran : null),
+                lampiranName: lampiranName || (editId ? data.find(d=>d.id===editId)?.lampiranName : null)
+            };
+
+            if (editId) data[data.findIndex(d => d.id === editId)] = entry;
+            else data.push(entry);
+
+            try { saveData(data); } catch(e) { return showToast('Penyimpanan penuh!', 'error'); }
+            
+            showToast('Arsip disimpan!');
+            resetForm(); init(); switchToPage('page-data');
+        });
+
+        function resetForm() { document.getElementById('arsip-form').reset(); document.getElementById('f-edit-id').value = ''; document.getElementById('file-name-display').style.display='none'; }
+
+
+        // UI Helpers
+        function openModal(id) { document.getElementById(id).classList.add('active'); document.body.style.overflow='hidden'; }
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); document.body.style.overflow=''; }
+        document.getElementById('f-nik').addEventListener('input', function() { this.value = this.value.replace(/\D/g, '').slice(0, 16); });
+        document.getElementById('f-lampiran').addEventListener('change', function() { document.getElementById('file-name-display').style.display = this.files.length ? 'block' : 'none'; if(this.files.length) document.getElementById('file-name-display').textContent = '📎 ' + this.files[0].name; });
+        ['search-input','filter-year','filter-sort'].forEach(id => document.getElementById(id).addEventListener('input', () => { currentPage=1; renderData(); }));
+
+        function init() {
+            updateStats(); updateYearFilter(); renderData(); updateSyncIndicator();
+            if(!document.getElementById('f-tanggal').value) document.getElementById('f-tanggal').value = new Date().toISOString().split('T')[0];
+            
+            // Initial cloud sync if keys are hardcoded
+            const settings = getCloudSettings();
+            if(settings.apiKey && settings.binId && !window.hasSyncedOnLoad) {
+                window.hasSyncedOnLoad = true;
+                syncFromCloud();
+            }
+        }
+        init();
+    </script>
+</body>
+</html>
