@@ -664,6 +664,11 @@
         .detail-label { font-size: 11px; font-weight: 700; color: var(--text-light); text-transform: uppercase; margin-bottom: 4px; }
         .detail-value { font-size: 15px; color: var(--text-main); font-weight: 500; background: var(--bg-body); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border); }
 
+        /* FITUR: pratinjau & unduh PDF lampiran di modal detail */
+        .pdf-embed { width: 100%; height: 420px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-body); display: block; }
+        .lampiran-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+        .lampiran-fallback { font-size: 13px; color: var(--text-light); background: var(--bg-body); border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 18px; text-align: center; }
+
         .toast-container { position: fixed; top: 20px; right: 20px; z-index: 300; display: flex; flex-direction: column; gap: 10px; }
         .toast { background: var(--bg-white); border-radius: var(--radius-md); padding: 16px 20px; display: flex; align-items: center; gap: 12px; box-shadow: var(--shadow-hover); border-left: 4px solid var(--primary); min-width: 300px; animation: toastIn 0.3s ease; }
         .toast.error { border-left-color: var(--danger); }
@@ -811,7 +816,6 @@
                         <option value="oldest">Terlama</option>
                         <option value="name-asc">Nama A-Z</option>
                     </select>
-                    <button class="btn btn-outline btn-sm" onclick="exportCSV()">📊 Export CSV</button>
                 </div>
             </div>
 
@@ -1328,6 +1332,7 @@
                 tab.classList.add('active');
                 document.getElementById(targetPage).classList.add('active');
                 if (targetPage === 'page-draft') renderDrafts();
+                if (targetPage === 'page-data') renderData(); // FIX: status tombol hapus selalu terkini
                 window.scrollTo(0,0);
             });
         });
@@ -1338,6 +1343,8 @@
                 isFormUnlocked = true;
                 closeModal('password-modal');
                 showToast('🔓 Akses diberikan! Selamat bekerja.');
+                // FIX: refresh daftar agar tombol hapus (🗑️) langsung muncul di Data Arsip
+                renderData();
                 const targetPage = pendingPage || 'page-form';
                 pendingPage = null;
                 switchToPage(targetPage);
@@ -1361,6 +1368,8 @@
             document.getElementById(pageId).classList.add('active');
             // FITUR BARU: pastikan daftar draft selalu segar saat membuka halaman Draft
             if (pageId === 'page-draft') renderDrafts();
+            // FIX: pastikan kartu Data Arsip ter-render dengan status unlock terkini
+            if (pageId === 'page-data') renderData();
         }
 
         // Render functions
@@ -1509,6 +1518,42 @@
         document.getElementById('draft-search-input').addEventListener('input', renderDrafts);
 
         // Modal
+        // ===== FITUR: LIHAT & UNDUH PDF LAMPIRAN =====
+        function getDriveFileId(item) {
+            if (item.driveFileId) return String(item.driveFileId).replace(/[^A-Za-z0-9_-]/g, '');
+            const url = String(item.lampiran || '');
+            const m = url.match(/\/file\/d\/([A-Za-z0-9_-]+)/) || url.match(/[?&]id=([A-Za-z0-9_-]+)/);
+            return m ? m[1] : '';
+        }
+        function getLampiranPreviewUrl(item) {
+            const id = getDriveFileId(item);
+            if (id) return 'https://drive.google.com/file/d/' + id + '/preview';
+            if (String(item.lampiran || '').startsWith('data:application/pdf')) return item.lampiran;
+            return '';
+        }
+        function getLampiranDownloadUrl(item) {
+            const id = getDriveFileId(item);
+            if (id) return 'https://drive.google.com/uc?export=download&id=' + id;
+            return item.lampiran || '';
+        }
+        function renderLampiranSection(item) {
+            const name = escapeHtml(item.lampiranName || 'Lampiran PDF');
+            const previewUrl = getLampiranPreviewUrl(item);
+            const downloadUrl = getLampiranDownloadUrl(item);
+            return `
+                <div class="detail-row">
+                    <div class="detail-label">Lampiran PDF — ${name}</div>
+                    ${previewUrl
+                        ? `<iframe class="pdf-embed" src="${previewUrl}" title="Pratinjau ${name}" loading="lazy"></iframe>`
+                        : `<div class="lampiran-fallback">👁️ Pratinjau tidak tersedia untuk file ini.<br>Gunakan tombol di bawah untuk membuka / mengunduh.</div>`}
+                    <div class="lampiran-actions">
+                        <a class="btn btn-primary btn-sm" href="${downloadUrl}" download target="_blank" rel="noopener">⬇️ Unduh PDF</a>
+                        <a class="btn btn-outline btn-sm" href="${previewUrl || downloadUrl}" target="_blank" rel="noopener">👁️ Lihat di tab baru</a>
+                    </div>
+                </div>
+            `;
+        }
+
         function showDetail(id) {
             const item = loadData().find(d => d.id === id);
             if (!item) return;
@@ -1522,8 +1567,11 @@
                 <div class="detail-row"><div class="detail-label">Desa/Kelurahan</div><div class="detail-value">${escapeHtml(item.desa || '-')}</div></div>
                 <div class="detail-row"><div class="detail-label">Lokasi</div><div class="detail-value">${escapeHtml(item.lokasi)}</div></div>
                 <div class="detail-row"><div class="detail-label">Asal Usul & Pejabat</div><div class="detail-value">${escapeHtml(item.asal)} <br>Oleh: ${escapeHtml(item.pejabat)}</div></div>
-                ${item.lampiran ? `<div class="detail-row"><div class="detail-label">Lampiran</div><div class="detail-value"><a href="${item.lampiran}" download="${item.lampiranName}" target="_blank" rel="noopener" style="color:var(--primary); font-weight:bold;">📎 Unduh PDF</a></div></div>` : ''}
+                ${item.lampiran ? renderLampiranSection(item) : ''}
             `;
+
+            // Modal lebih lebar saat ada pratinjau PDF agar nyaman dibaca
+            document.querySelector('#detail-modal .modal').style.maxWidth = item.lampiran ? '860px' : '';
 
             openModal('detail-modal');
         }
@@ -1616,6 +1664,29 @@
         function closeModal(id) { document.getElementById(id).classList.remove('active'); document.body.style.overflow=''; }
         document.getElementById('f-nik').addEventListener('input', function() { this.value = this.value.replace(/\D/g, '').slice(0, 16); });
         document.getElementById('f-lampiran').addEventListener('change', function() { document.getElementById('file-name-display').style.display = this.files.length ? 'block' : 'none'; if(this.files.length) document.getElementById('file-name-display').textContent = '📎 ' + this.files[0].name; });
+
+        // ===== UPLOAD AREA: klik untuk pilih file + drag & drop PDF =====
+        const uploadArea = document.getElementById('file-upload-area');
+        const lampiranInput = document.getElementById('f-lampiran');
+        uploadArea.addEventListener('click', () => lampiranInput.click());
+        ['dragenter', 'dragover'].forEach(ev => uploadArea.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); uploadArea.classList.add('dragover'); }));
+        ['dragleave', 'drop'].forEach(ev => uploadArea.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); uploadArea.classList.remove('dragover'); }));
+        uploadArea.addEventListener('drop', e => {
+            const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (!file) return;
+            if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                showToast('Hanya file PDF yang diterima!', 'error');
+                return;
+            }
+            try {
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                lampiranInput.files = dt.files;
+                lampiranInput.dispatchEvent(new Event('change'));
+            } catch (_) {
+                showToast('Browser tidak mendukung drag & drop — silakan klik area untuk memilih file.', 'warning');
+            }
+        });
         ['search-input','filter-year','filter-sort','filter-desa'].forEach(id => document.getElementById(id).addEventListener('input', () => { currentPage=1; renderData(); }));
 
         function init() {
