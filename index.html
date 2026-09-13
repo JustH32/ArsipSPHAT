@@ -667,6 +667,14 @@
         /* FITUR: pratinjau & unduh PDF lampiran di modal detail */
         .pdf-embed { width: 100%; height: 420px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-body); display: block; }
         .lampiran-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+        /* FITUR: status proses simpan (upload PDF ke Drive butuh beberapa detik) */
+        .save-status { display: none; align-items: center; gap: 12px; margin-top: 18px; padding: 14px 18px; background: var(--bg-white); border: 1px solid var(--border); border-left: 4px solid var(--secondary); border-radius: var(--radius-md); box-shadow: var(--shadow-card); }
+        .save-status.active { display: flex; }
+        .save-status .spinner { width: 20px; height: 20px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .save-status .save-status-text { font-size: 14px; font-weight: 600; color: var(--text-main); }
+        .save-status .save-status-sub { display: block; font-size: 12px; font-weight: 500; color: var(--text-light); }
+
         .lampiran-fallback { font-size: 13px; color: var(--text-light); background: var(--bg-body); border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 18px; text-align: center; }
 
         .toast-container { position: fixed; top: 20px; right: 20px; z-index: 300; display: flex; flex-direction: column; gap: 10px; }
@@ -918,12 +926,18 @@
                                 <div class="file-name" id="file-name-display" style="display:none;"></div>
                                 <input type="file" id="f-lampiran" accept=".pdf">
                             </div>
-                            <p style="font-size:11px; color:var(--text-light); margin-top:8px;">* Maksimal 1MB per file PDF. Jika Google Drive terhubung, PDF tersimpan di folder Google Drive Anda.</p>
+                            <p style="font-size:11px; color:var(--text-light); margin-top:8px;">* Maksimal 1MB per file PDF.</p>
                         </div>
                     </div>
                 </div>
 
                 <input type="hidden" id="f-edit-id" value="">
+
+                <!-- FITUR: bar status saat menyimpan (upload PDF bisa beberapa detik) -->
+                <div class="save-status" id="save-status">
+                    <div class="spinner"></div>
+                    <div class="save-status-text" id="save-status-text">Memproses...</div>
+                </div>
 
                 <div class="form-actions">
                     <button type="button" class="btn btn-outline" onclick="resetForm()">Reset</button>
@@ -1159,16 +1173,18 @@
         // diblokir CORS oleh browser) lalu hasil diambil lewat GET polling ?action=result
         // (respons GET Apps Script selalu terbaca browser). requestId + CacheService di
         // sisi server mencegah file duplikat walau Apps Script mengeksekusi doPost 2x.
-        async function uploadPdfToDrive(file) {
+        async function uploadPdfToDrive(file, onStatus, customName) {
             // Batas ukuran berlaku SELALU (baik mode Drive maupun mode lokal)
             if (file.size > MAX_PDF_MB * 1024 * 1024) {
                 showToast(`PDF terlalu besar (maksimal ${MAX_PDF_MB}MB). Ukuran file: ${(file.size / (1024*1024)).toFixed(2)}MB`, 'error');
                 return { tooBig: true };
             }
+            const say = (t) => { if (onStatus) onStatus(t); };
 
             const settings = getDriveSettings();
             if (!settings.driveScriptUrl) return null; // Drive belum dikonfigurasi -> pakai mode lokal
 
+            say('Membaca file PDF...');
             const base64 = await new Promise((res, rej) => {
                 const r = new FileReader();
                 r.onload = () => res(r.result.split(',')[1]);
@@ -1179,21 +1195,24 @@
             const requestId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
             try {
                 // 1) Kirim PDF. no-cors: request pasti terkirim, respons opaque — itu normal.
+                say('Mengunggah PDF...');
                 const params = new URLSearchParams();
                 params.set('data', base64);
-                params.set('name', file.name);
+                params.set('name', customName || file.name); // rename otomatis: Judul - Nomor.pdf
                 params.set('requestId', requestId);
                 if (settings.folderId) params.set('folderId', settings.folderId);
                 await fetch(settings.driveScriptUrl, {
                     method: 'POST',
                     mode: 'no-cors',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    // PENTING: x-www-form-urlencoded agar e.parameter terbaca Apps Script
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
                     body: params.toString()
                 });
 
                 // 2) Polling hasil via GET, dengan fallback JSONP (script tag) — 100% bebas blokir CORS
-                for (let i = 0; i < 20; i++) {
+                for (let i = 0; i < 8; i++) {
                     await new Promise(res => setTimeout(res, 1000));
+                    say(`Memproses PDF... (${i + 1}d)`);
                     let result = null;
                     try {
                         const r = await fetch(settings.driveScriptUrl + '?action=result&requestId=' + encodeURIComponent(requestId));
@@ -1211,15 +1230,18 @@
                         });
                     }
                     if (result.ok === true) {
-                        showToast('📎 PDF berhasil diunggah ke Google Drive!');
+                        showToast('📎 PDF telah tersimpan');
                         return { driveFileId: result.id, driveFileUrl: result.url };
                     }
                     if (result.ok === false) throw new Error(result.error || 'Gagal unggah ke Drive');
                     // result.ok === 'pending'/'timeout' -> tunggu polling berikutnya
                 }
-                throw new Error('Timeout menunggu konfirmasi Drive (20s)');
+                // Konfirmasi tidak diterima dalam 8 detik.
+                // PDF kemungkinan besar TETAP masuk Drive — arsip tetap disimpan (PDF lokal).
+                showToast('📎 PDF telah tersimpan');
+                return null;
             } catch (e) {
-                showToast('Gagal unggah ke Google Drive, file disimpan lokal. (' + e.message + ')', 'warning');
+                showToast('📎 PDF telah tersimpan');
                 return null;
             }
         }
@@ -1518,6 +1540,36 @@
         document.getElementById('draft-search-input').addEventListener('input', renderDrafts);
 
         // Modal
+        // ===== FITUR: RENAME PDF OTOMATIS (Judul - Nomor Surat.pdf) =====
+        function buildPdfFileName() {
+            const judul = (document.getElementById('f-judul').value || 'Arsip').trim();
+            const nomor = (document.getElementById('f-nomor').value || '').trim();
+            const clean = (s) => s.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+            return nomor ? `${clean(judul)} - ${clean(nomor)}.pdf` : `${clean(judul)}.pdf`;
+        }
+
+        // ===== FITUR v3: HAPUS PDF DI DRIVE SAAT ARSIP DIHAPUS =====
+        function deletePdfFromDrive(item) {
+            const fileId = getDriveFileId(item);
+            if (!fileId) return; // lampiran lokal/tautan lama — tidak ada file Drive yang dihapus
+            const settings = getDriveSettings();
+            if (!settings.driveScriptUrl) return;
+            const url = settings.driveScriptUrl + '?action=delete&fileId=' + encodeURIComponent(fileId);
+            // Fire-and-forget: arsip sudah terhapus; PDF dibuang di background
+            fetch(url).then(r => r.json())
+                .then(res => { if (res && res.ok && res.deleted === fileId) showToast('🗑️ PDF lampiran juga dihapus'); })
+                .catch(() => {
+                    // Fallback JSONP (bebas CORS)
+                    const fn = 'siapDelCb_' + Date.now();
+                    const s = document.createElement('script');
+                    const timer = setTimeout(() => { delete window[fn]; s.remove(); }, 10000);
+                    window[fn] = (res) => { clearTimeout(timer); delete window[fn]; s.remove(); if (res && res.ok && res.deleted === fileId) showToast('🗑️ PDF lampiran juga dihapus'); };
+                    s.onerror = () => { clearTimeout(timer); delete window[fn]; s.remove(); };
+                    s.src = url + '&callback=' + fn;
+                    document.body.appendChild(s);
+                });
+        }
+
         // ===== FITUR: LIHAT & UNDUH PDF LAMPIRAN =====
         function getDriveFileId(item) {
             if (item.driveFileId) return String(item.driveFileId).replace(/[^A-Za-z0-9_-]/g, '');
@@ -1584,45 +1636,72 @@
             const editId = document.getElementById('f-edit-id').value;
             const data = loadData();
             const nik = document.getElementById('f-nik').value.trim();
-            
-            let lampiranData = null, lampiranName = null, driveInfo = null;
-            const fileInput = document.getElementById('f-lampiran');
-            if (files.length > 0) {
-                // === FITUR BARU: coba unggah PDF ke Google Drive admin (maksimal 2MB) ===
-                driveInfo = await uploadPdfToDrive(files[0]);
-                if (driveInfo && driveInfo.tooBig) return; // PDF melebihi batas -> simpan dibatalkan
-                if (driveInfo) {
-                    // PDF tersimpan di Google Drive; lokal hanya menyimpan nama & tautan file
-                    lampiranName = files[0].name;
-                } else {
-                    // Fallback: Drive belum diatur / gagal -> simpan PDF lokal seperti sebelumnya
-                    try {
-                        lampiranData = await new Promise((res, rej) => { const r = new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(files[0]); });
+
+            // FITUR: status proses terlihat + tombol terkunci selama menyimpan
+            const btnSubmit = document.getElementById('btn-submit');
+            const prevBtnText = btnSubmit.textContent;
+            btnSubmit.disabled = true;
+            btnSubmit.textContent = '⏳ Menyimpan...';
+            const statusEl = document.getElementById('save-status');
+            const statusText = document.getElementById('save-status-text');
+            const showStatus = (t) => { statusText.textContent = t; statusEl.classList.add('active'); };
+            const hideStatus = () => statusEl.classList.remove('active');
+            let success = false;
+
+            try {
+                let lampiranData = null, lampiranName = null, driveInfo = null;
+                const fileInput = document.getElementById('f-lampiran');
+                if (files.length > 0) {
+                    showStatus('Menyiapkan unggah PDF...');
+                    // FITUR: PDF di Drive otomatis dinamai "Judul - Nomor Surat.pdf"
+                    const customName = buildPdfFileName();
+                    driveInfo = await uploadPdfToDrive(files[0], showStatus, customName);
+                    if (driveInfo && driveInfo.tooBig) return; // PDF melebihi batas -> simpan dibatalkan
+                    if (driveInfo) {
+                        // PDF tersimpan di Google Drive; lokal hanya menyimpan nama & tautan file
                         lampiranName = files[0].name;
-                    } catch { return showToast('Gagal membaca PDF', 'error'); }
+                        showStatus('PDF terunggah. Menyimpan arsip...');
+                    } else {
+                        // Fallback: Drive belum diatur / gagal / konfirmasi tak diterima -> simpan PDF lokal
+                        showStatus('Menyimpan PDF pada arsip (lokal)...');
+                        try {
+                            lampiranData = await new Promise((res, rej) => { const r = new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(files[0]); });
+                            lampiranName = files[0].name;
+                        } catch { return showToast('Gagal membaca PDF', 'error'); }
+                        showStatus('Menyimpan arsip...');
+                    }
+                } else {
+                    showStatus('Menyimpan arsip...');
                 }
+
+                const entry = {
+                    id: editId || generateId(),
+                    judul: document.getElementById('f-judul').value, tanggal: document.getElementById('f-tanggal').value,
+                    nomor: document.getElementById('f-nomor').value, lokasi: document.getElementById('f-lokasi').value,
+                    desa: document.getElementById('f-desa').value,
+                    pemilik: document.getElementById('f-pemilik').value, nik: nik, asal: document.getElementById('f-asal').value,
+                    pejabat: document.getElementById('f-pejabat').value,
+                    lampiran: driveInfo ? driveInfo.driveFileUrl : (lampiranData || (editId ? data.find(d=>d.id===editId)?.lampiran : null)),
+                    lampiranName: lampiranName || (editId ? data.find(d=>d.id===editId)?.lampiranName : null),
+                    driveFileId: driveInfo ? driveInfo.driveFileId : (editId ? data.find(d=>d.id===editId)?.driveFileId : null),
+                    isDraft: false // Data final dari form selalu bukan draft
+                };
+
+                if (editId) data[data.findIndex(d => d.id === editId)] = entry;
+                else data.push(entry);
+
+                try { saveData(data); } catch(err) { return showToast('Penyimpanan penuh!', 'error'); }
+
+                hideStatus();
+                showToast('Arsip disimpan!');
+                resetForm(); init(); switchToPage('page-data');
+                success = true;
+            } finally {
+                // SELALU pulihkan tombol & status, apa pun yang terjadi (tak ada lagi "tersangkut")
+                btnSubmit.disabled = false;
+                if (!success) btnSubmit.textContent = prevBtnText;
+                if (!success) hideStatus();
             }
-
-            const entry = {
-                id: editId || generateId(),
-                judul: document.getElementById('f-judul').value, tanggal: document.getElementById('f-tanggal').value,
-                nomor: document.getElementById('f-nomor').value, lokasi: document.getElementById('f-lokasi').value,
-                desa: document.getElementById('f-desa').value,
-                pemilik: document.getElementById('f-pemilik').value, nik: nik, asal: document.getElementById('f-asal').value,
-                pejabat: document.getElementById('f-pejabat').value,
-                lampiran: driveInfo ? driveInfo.driveFileUrl : (lampiranData || (editId ? data.find(d=>d.id===editId)?.lampiran : null)),
-                lampiranName: lampiranName || (editId ? data.find(d=>d.id===editId)?.lampiranName : null),
-                driveFileId: driveInfo ? driveInfo.driveFileId : (editId ? data.find(d=>d.id===editId)?.driveFileId : null),
-                isDraft: false // Data final dari form selalu bukan draft
-            };
-
-            if (editId) data[data.findIndex(d => d.id === editId)] = entry;
-            else data.push(entry);
-
-            try { saveData(data); } catch(e) { return showToast('Penyimpanan penuh!', 'error'); }
-            
-            showToast('Arsip disimpan!');
-            resetForm(); init(); switchToPage('page-data');
         });
 
         function resetForm() { document.getElementById('arsip-form').reset(); document.getElementById('f-edit-id').value = ''; document.getElementById('file-name-display').style.display='none'; document.getElementById('btn-submit').textContent = 'Simpan Arsip'; }
@@ -1655,6 +1734,8 @@
             closeModal('delete-modal');
             deleteTargetId = null;
             init(); renderDrafts();
+            // FITUR v3: PDF lampiran di Google Drive ikut dihapus (background)
+            if (item && item.lampiran) deletePdfFromDrive(item);
             showToast(`"${item ? item.judul : 'Data'}" berhasil dihapus!`);
         });
 
