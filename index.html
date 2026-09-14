@@ -673,6 +673,17 @@
         .save-status .spinner { width: 20px; height: 20px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .save-status .save-status-text { font-size: 14px; font-weight: 600; color: var(--text-main); }
+
+        /* FITUR EDIT DATA: tombol Edit & Hapus PDF di modal detail */
+        .btn-edit { background: var(--bg-card, #fff); color: var(--primary, #2c5f2d); border: 1.5px solid var(--primary, #2c5f2d); }
+        .btn-edit:hover { background: var(--primary, #2c5f2d); color: #fff; }
+        .btn-edit.btn-pdf-danger { color: var(--danger, #c0392b); border-color: var(--danger, #c0392b); }
+        .btn-edit.btn-pdf-danger:hover { background: var(--danger, #c0392b); color: #fff; }
+
+        /* FITUR EDIT DATA: kartu lampiran tersimpan di form edit (dengan tombol hapus PDF) */
+        .edit-attachment { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding: 10px 12px; border: 1px dashed #bbb; border-radius: 8px; background: #fafafa; }
+        .edit-attachment .att-name { font-size: 12.5px; color: var(--text-main); word-break: break-all; }
+        .edit-attachment .att-name small { display: block; color: var(--text-light); margin-top: 2px; }
         .save-status .save-status-sub { display: block; font-size: 12px; font-weight: 500; color: var(--text-light); }
 
         .lampiran-fallback { font-size: 13px; color: var(--text-light); background: var(--bg-body); border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 18px; text-align: center; }
@@ -927,6 +938,8 @@
                                 <input type="file" id="f-lampiran" accept=".pdf">
                             </div>
                             <p style="font-size:11px; color:var(--text-light); margin-top:8px;">* Maksimal 1MB per file PDF.</p>
+                            <!-- FITUR EDIT DATA: kartu PDF lama saat mode edit (bisa dihapus lewat tombol sampah) -->
+                            <div class="edit-attachment" id="edit-attachment-slot" style="display:none;"></div>
                         </div>
                     </div>
                 </div>
@@ -940,7 +953,8 @@
                 </div>
 
                 <div class="form-actions">
-                    <button type="button" class="btn btn-outline" onclick="resetForm()">Reset</button>
+                    <!-- FITUR EDIT DATA: Reset berubah jadi "Batal" saat mode edit -->
+                    <button type="button" class="btn btn-outline" id="btn-reset-form" onclick="cancelEdit()">Reset</button>
                     <button type="button" class="btn btn-draft" onclick="saveDraft()">Simpan Draft</button>
                     <button type="submit" class="btn btn-primary" id="btn-submit">Simpan Arsip</button>
                 </div>
@@ -1003,6 +1017,9 @@
             </div>
             <div class="modal-footer">
                 <span id="draft-action-slot" style="margin-right:auto;"></span>
+                <!-- FITUR EDIT DATA: tombol Edit & Hapus PDF, hanya aktif setelah login admin -->
+                <button class="btn btn-edit btn-pdf-danger" id="btn-detail-delete-pdf" style="display:none;" onclick="event.stopPropagation(); openDeletePdfModal();">🗑️ Hapus PDF</button>
+                <button class="btn btn-edit" id="btn-detail-edit" style="display:none;" onclick="event.stopPropagation(); openEditData(currentDetailId);">✏️ Edit Data</button>
                 <button class="btn btn-outline" onclick="closeModal('detail-modal')">Tutup</button>
             </div>
         </div>
@@ -1026,6 +1043,25 @@
             <div class="modal-footer" style="justify-content: center;">
                 <button class="btn btn-outline" onclick="closeModal('delete-modal')">Batal</button>
                 <button class="btn btn-danger" id="btn-confirm-delete">🗑️ Ya, Hapus</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- FITUR EDIT DATA: MODAL KONFIRMASI HAPUS PDF LAMPAIAN -->
+    <div class="modal-overlay" id="delete-pdf-modal">
+        <div class="modal" style="max-width: 440px;">
+            <div class="modal-header">
+                <h2 style="color: var(--danger);">🗑️ Hapus PDF Lampiran</h2>
+                <button class="btn-action" onclick="closeDeletePdfModal()" style="border:none; font-size:20px;">✕</button>
+            </div>
+            <div class="modal-body" style="text-align: center;">
+                <div style="font-size: 44px; margin-bottom: 12px;">📄</div>
+                <p style="margin-bottom: 8px;">Hapus PDF <strong id="delete-pdf-item-title">lampiran</strong> dari arsip ini?</p>
+                <p style="color: var(--danger); font-size: 13px; font-weight: 600;">File PDF-nya juga akan dihapus dari Google Drive.</p>
+            </div>
+            <div class="modal-footer" style="justify-content: center;">
+                <button class="btn btn-outline" onclick="closeDeletePdfModal()">Batal</button>
+                <button class="btn btn-danger" id="btn-confirm-delete-pdf">🗑️ Ya, Hapus PDF</button>
             </div>
         </div>
     </div>
@@ -1173,6 +1209,146 @@
         // diblokir CORS oleh browser) lalu hasil diambil lewat GET polling ?action=result
         // (respons GET Apps Script selalu terbaca browser). requestId + CacheService di
         // sisi server mencegah file duplikat walau Apps Script mengeksekusi doPost 2x.
+        // =====================================================================
+        // ===== FITUR EDIT DATA (✏️) — ubah arsip yang sudah ada ==============
+        // =====================================================================
+        // Prinsip penting (sesuai permintaan):
+        // - Kalau user TIDAK menyentuh PDF, file PDF lama di Drive TIDAK dihapus.
+        // - Tombol "Hapus PDF" di form edit yang menghapus PDF (dari data + Drive),
+        //   dan hanya jika user mengonfirmasi — jangan pernah hapus file di Drive
+        //   tanpa persetujuan user.
+        // - Jika PDF baru diunggah saat mengedit, PDF lama baru dihapus
+        //   SETELAH arsip berhasil diperbarui (penggantian file).
+        function isEditing() { return !!document.getElementById('f-edit-id').value; }
+
+        function getEditItem() {
+            const id = document.getElementById('f-edit-id').value;
+            return id ? loadData().find(d => d.id === id) : null;
+        }
+
+        // Apakah PDF lama masih melekat pada item yang sedang diedit?
+        // lampiranLocalMode = user sudah menekan "Hapus PDF" di form edit.
+        function editHasOldPdf(item) {
+            if (lampiranLocalMode) return false;
+            const it = item || getEditItem();
+            return !!(it && it.lampiran);
+        }
+
+        function renderEditAttachmentBox() {
+            const slot = document.getElementById('edit-attachment-slot');
+            if (!slot) return;
+            const item = getEditItem();
+            const hasOld = editHasOldPdf(item);
+            const pending = !!pendingPdfAction.deleteId;
+            if ((!isEditing() && !pending) || (!hasOld && !pending)) {
+                slot.style.display = 'none';
+                slot.innerHTML = '';
+                return;
+            }
+            const name = escapeHtml(pending.name || (item && item.lampiranName) || 'Lampiran PDF');
+            const fileTitle = pending.deleteId
+                ? `<small>🗑️ PDF lama akan dihapus dari Google Drive saat arsip diperbarui.</small>`
+                : `<small>Sudah tersimpan — dibiarkan apa adanya jika tidak ingin mengganti.</small>`;
+            slot.innerHTML = `
+                <div class="att-name">📎 ${name}${fileTitle}</div>
+                <button type="button" class="btn-trash" title="Hapus PDF ini" onclick="openDeletePdfModal()">🗑️</button>
+            `;
+            slot.style.display = 'block';
+        }
+
+        // tombol ✏️ Edit Data di modal detail
+        function openEditData(id) {
+            const item = loadData().find(d => d.id === id);
+            if (!item) return showToast('Data tidak ditemukan', 'error');
+            closeModal('detail-modal');
+            switchToPage('page-form');
+            enterEditMode(item);
+        }
+
+        // Isi form dengan data yang ada + mode edit aktif
+        function enterEditMode(item) {
+            pendingPdfAction = { deleteId: null, deleteName: null };
+            lampiranLocalMode = false;
+            document.getElementById('f-edit-id').value = item.id;
+            document.getElementById('f-judul').value = item.judul || '';
+            document.getElementById('f-tanggal').value = item.tanggal || '';
+            document.getElementById('f-nomor').value = item.nomor || '';
+            document.getElementById('f-lokasi').value = item.lokasi || '';
+            document.getElementById('f-desa').value = item.desa || '';
+            document.getElementById('f-pemilik').value = item.pemilik || '';
+            document.getElementById('f-nik').value = item.nik || '';
+            document.getElementById('f-asal').value = item.asal || '';
+            document.getElementById('f-pejabat').value = item.pejabat || '';
+            document.getElementById('btn-submit').textContent = 'Perbarui Arsip';
+            document.getElementById('btn-reset-form').textContent = 'Batal';
+            document.getElementById('file-name-display').style.display = 'none';
+            document.getElementById('f-lampiran').value = '';
+            renderEditAttachmentBox();
+        }
+
+        // Tombol "Batal" saat mode edit: keluar dari mode edit, tidak mengubah apa pun
+        function cancelEdit() {
+            const wasEditing = isEditing();
+            pendingPdfAction = { deleteId: null, deleteName: null };
+            lampiranLocalMode = false;
+            resetForm();
+            if (wasEditing) showToast('Edit dibatalkan — tidak ada perubahan.');
+            switchToPage('page-data');
+        }
+
+        // Modal konfirmasi sebelum PDF (lama) benar-benar dihapus.
+        // Bisa dipanggil dari form edit ATAU dari modal detail arsip.
+        function openDeletePdfModal() {
+            if (!isFormUnlocked) {
+                showToast('Login admin diperlukan untuk menghapus PDF!', 'error');
+                return;
+            }
+            let item;
+            if (isEditing()) {
+                item = getEditItem();
+            } else if (currentDetailId) {
+                item = loadData().find(d => d.id === currentDetailId);
+            }
+            if (!item || !item.lampiran) return showToast('Tidak ada PDF yang tersimpan pada arsip ini.', 'error');
+            pdfDeleteCtx = isEditing() ? 'form' : 'detail';
+            pendingPdfAction = { deleteId: item.id, deleteName: item.lampiranName || 'Lampiran PDF' };
+            document.getElementById('delete-pdf-item-title').textContent = item.lampiranName || item.judul || 'Lampiran PDF';
+            openModal('delete-pdf-modal');
+            renderEditAttachmentBox();
+        }
+
+        function closeDeletePdfModal() { closeModal('delete-pdf-modal'); renderEditAttachmentBox(); }
+
+        function confirmDeletePdf() {
+            closeModal('delete-pdf-modal');
+            const targetId = pendingPdfAction.deleteId;
+            pendingPdfAction = { deleteId: null, deleteName: null };
+            if (!targetId) return;
+            if (pdfDeleteCtx === 'form') {
+                // Dari form edit: hanya menandai — PDF baru benar-benar dihapus
+                // saat user menekan "Perbarui Arsip"
+                lampiranLocalMode = true;
+                renderEditAttachmentBox();
+                showToast('PDF ditandai untuk dihapus. Tekan "Perbarui Arsip" untuk menyetujui.');
+            } else {
+                // Dari modal detail: terapkan langsung
+                const data = loadData();
+                const idx = data.findIndex(d => d.id === targetId);
+                const item = idx > -1 ? data[idx] : null;
+                if (!item) return;
+                const fileId = getDriveFileId(item);
+                data[idx] = { ...item, lampiran: null, lampiranName: null, driveFileId: null };
+                try { saveData(data); } catch(e) { return showToast('Gagal menghapus PDF!', 'error'); }
+                init();
+                if (fileId) {
+                    deletePdfFromDrive({ lampiran: item.lampiran, driveFileId: item.driveFileId });
+                } else {
+                    showToast('🗑️ PDF lampiran dihapus');
+                }
+            }
+        }
+
+        // ===== FITUR EDIT DATA ==============================================
         async function uploadPdfToDrive(file, onStatus, customName) {
             // Batas ukuran berlaku SELALU (baik mode Drive maupun mode lokal)
             if (file.size > MAX_PDF_MB * 1024 * 1024) {
@@ -1263,32 +1439,74 @@
             };
         }
 
-        function saveDraft() {
+        // ===== FIX BUG: PDF yang dilampirkan saat mengisi draft dulu HILANG saat disimpan
+        // (Simpan Draft tidak mengunggah PDF sama sekali). Sekarang draft memakai alur
+        // upload yang sama dengan arsip final: PDF benar-benar diunggah ke Drive.
+        async function saveDraft() {
             const editId = document.getElementById('f-edit-id').value;
             const data = loadData();
+            const oldItem = editId ? data.find(d => d.id === editId) : null;
             const form = collectFormData();
-
             const fileInput = document.getElementById('f-lampiran');
-            const entry = {
-                ...form,
-                lampiran: fileInput.files.length === 0 && editId ? (data.find(d=>d.id===editId)?.lampiran || null) : null,
-                lampiranName: fileInput.files.length === 0 && editId ? (data.find(d=>d.id===editId)?.lampiranName || null) : null,
-                isDraft: true,
-                draftSavedAt: new Date().toISOString()
-            };
+            const btnDraft = document.querySelector('.btn-draft');
+            const prevDraftText = btnDraft ? btnDraft.textContent : 'Simpan Draft';
+            const statusEl = document.getElementById('save-status');
+            const statusText = document.getElementById('save-status-text');
+            const showStatus = (t) => { statusText.textContent = t; statusEl.classList.add('active'); };
+            if (btnDraft) { btnDraft.disabled = true; btnDraft.textContent = '⏳ Menyimpan...'; }
 
-            if (editId) {
-                const idx = data.findIndex(d => d.id === editId);
-                if (idx > -1) { entry.id = editId; data[idx] = { ...data[idx], ...entry }; }
-                else { entry.id = generateId(); data.push(entry); }
-            } else {
-                entry.id = generateId();
-                data.push(entry);
+            try {
+                let lampiran = null, lampiranName = null, driveFileId = null;
+                if (fileInput.files.length > 0) {
+                    showStatus('Menyiapkan unggah PDF...');
+                    const driveInfo = await uploadPdfToDrive(fileInput.files[0], showStatus, buildPdfFileName());
+                    if (driveInfo && driveInfo.tooBig) return; // PDF melebihi batas -> simpan dibatalkan
+                    if (driveInfo) {
+                        lampiran = driveInfo.driveFileUrl;
+                        lampiranName = fileInput.files[0].name;
+                        driveFileId = driveInfo.driveFileId;
+                    } else {
+                        // Fallback: Drive belum diatur / konfirmasi tak diterima -> simpan lokal
+                        showStatus('Menyimpan PDF pada draft (lokal)...');
+                        try {
+                            lampiran = await new Promise((res, rej) => { const r = new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(fileInput.files[0]); });
+                            lampiranName = fileInput.files[0].name;
+                        } catch { return showToast('Gagal membaca PDF', 'error'); }
+                    }
+                } else if (!lampiranLocalMode) {
+                    // Tidak ada file baru -> pertahankan lampiran lama (kecuali user menghapusnya)
+                    lampiran = oldItem ? (oldItem.lampiran || null) : null;
+                    lampiranName = oldItem ? (oldItem.lampiranName || null) : null;
+                }
+
+                const entry = {
+                    ...form,
+                    lampiran: lampiran,
+                    lampiranName: lampiranName,
+                    driveFileId: driveFileId,
+                    isDraft: true,
+                    draftSavedAt: new Date().toISOString()
+                };
+
+                if (editId) {
+                    const idx = data.findIndex(d => d.id === editId);
+                    if (idx > -1) { entry.id = editId; data[idx] = { ...data[idx], ...entry }; }
+                    else { entry.id = generateId(); data.push(entry); }
+                } else {
+                    entry.id = generateId();
+                    data.push(entry);
+                }
+
+                // Jika PDF lama ditandai hapus di form edit, PDF-nya ikut dibuang saat draft diperbarui
+                if (oldItem) try { resolvePendingPdfAction(oldItem, entry); } catch(_) {}
+
+                try { saveData(data); } catch(e) { return showToast('Penyimpanan penuh!', 'error'); }
+                showToast('Draft disimpan! Anda bisa melanjutkannya kapan saja.');
+                resetForm(); init(); switchToPage('page-draft');
+            } finally {
+                statusEl.classList.remove('active');
+                if (btnDraft) { btnDraft.disabled = false; btnDraft.textContent = prevDraftText; }
             }
-
-            try { saveData(data); } catch(e) { return showToast('Penyimpanan penuh!', 'error'); }
-            showToast('Draft disimpan! Anda bisa melanjutkannya kapan saja.');
-            resetForm(); init(); switchToPage('page-draft');
         }
 
         function resumeDraft(id) {
@@ -1299,23 +1517,8 @@
             closeModal('detail-modal');
             switchToPage('page-form');
 
-            document.getElementById('f-edit-id').value = item.id;
-            document.getElementById('f-judul').value = item.judul || '';
-            document.getElementById('f-tanggal').value = item.tanggal || '';
-            document.getElementById('f-nomor').value = item.nomor || '';
-            document.getElementById('f-lokasi').value = item.lokasi || '';
-            document.getElementById('f-desa').value = item.desa || '';
-            document.getElementById('f-pemilik').value = item.pemilik || '';
-            document.getElementById('f-nik').value = item.nik || '';
-            document.getElementById('f-asal').value = item.asal || '';
-            document.getElementById('f-pejabat').value = item.pejabat || '';
-            document.getElementById('btn-submit').textContent = 'Perbarui Arsip';
-
-            if (item.lampiranName) {
-                const fn = document.getElementById('file-name-display');
-                fn.style.display = 'block';
-                fn.textContent = '📎 ' + item.lampiranName + ' (sudah tersimpan — biarkan kosong jika tidak ingin mengganti)';
-            }
+            // FITUR EDIT DATA: draft memakai alur mode-edit yang sama (lampiran lama terjaga)
+            enterEditMode(item);
 
             showToast('Melanjutkan draft: ' + (item.judul || item.nomor || item.id));
         }
@@ -1570,6 +1773,24 @@
                 });
         }
 
+        // ===== FITUR EDIT DATA: terapkan keputusan PDF lama setelah arsip diperbarui =====
+        // - lampiranLocalMode (tombol Hapus PDF ditekan) -> PDF lama dibuang dari Drive
+        // - PDF baru menggantikan PDF lama (ID Drive berbeda) -> PDF lama juga dibuang
+        // - tanpa perubahan PDF -> fungsi ini TIDAK menyentuh Drive sama sekali
+        function resolvePendingPdfAction(oldItem, newItem) {
+            const oldId = getDriveFileId(oldItem);
+            if (!oldId) return; // tidak ada PDF Drive pada item lama — tidak ada yang dihapus
+            const replaced = !!(newItem && newItem.driveFileId && String(newItem.driveFileId) !== String(oldItem.driveFileId || ''));
+            const removed = !!(newItem && !newItem.lampiran && !newItem.driveFileId);
+            if (!removed && !replaced) return;
+            const settings = getDriveSettings();
+            if (!settings.driveScriptUrl) return;
+            fetch(settings.driveScriptUrl + '?action=delete&fileId=' + encodeURIComponent(oldId))
+                .then(r => r.json())
+                .then(res => { if (res && res.ok && res.deleted === oldId) showToast(replaced ? '🗑️ PDF lama diganti dengan yang baru' : '🗑️ PDF lampiran juga dihapus'); })
+                .catch(() => {});
+        }
+
         // ===== FITUR: LIHAT & UNDUH PDF LAMPIRAN =====
         function getDriveFileId(item) {
             if (item.driveFileId) return String(item.driveFileId).replace(/[^A-Za-z0-9_-]/g, '');
@@ -1622,6 +1843,11 @@
                 ${item.lampiran ? renderLampiranSection(item) : ''}
             `;
 
+            // FITUR EDIT DATA: tombol Edit & Hapus PDF hanya tampil setelah login admin
+            currentDetailId = item.id;
+            document.getElementById('btn-detail-edit').style.display = isFormUnlocked ? '' : 'none';
+            document.getElementById('btn-detail-delete-pdf').style.display = (isFormUnlocked && item.lampiran) ? '' : 'none';
+
             // Modal lebih lebar saat ada pratinjau PDF agar nyaman dibaca
             document.querySelector('#detail-modal .modal').style.maxWidth = item.lampiran ? '860px' : '';
 
@@ -1651,6 +1877,8 @@
             try {
                 let lampiranData = null, lampiranName = null, driveInfo = null;
                 const fileInput = document.getElementById('f-lampiran');
+                // FITUR EDIT DATA: item lama diperlukan untuk mempertahankan / mengganti PDF
+                const oldItem = editId ? data.find(d=>d.id===editId) : null;
                 if (files.length > 0) {
                     showStatus('Menyiapkan unggah PDF...');
                     // FITUR: PDF di Drive otomatis dinamai "Judul - Nomor Surat.pdf"
@@ -1681,9 +1909,11 @@
                     desa: document.getElementById('f-desa').value,
                     pemilik: document.getElementById('f-pemilik').value, nik: nik, asal: document.getElementById('f-asal').value,
                     pejabat: document.getElementById('f-pejabat').value,
-                    lampiran: driveInfo ? driveInfo.driveFileUrl : (lampiranData || (editId ? data.find(d=>d.id===editId)?.lampiran : null)),
-                    lampiranName: lampiranName || (editId ? data.find(d=>d.id===editId)?.lampiranName : null),
-                    driveFileId: driveInfo ? driveInfo.driveFileId : (editId ? data.find(d=>d.id===editId)?.driveFileId : null),
+                    // FITUR EDIT DATA: tanpa PDF baru -> PDF lama tetap dipakai KECUALI
+                    // user menekan "Hapus PDF" (lampiranLocalMode = true)
+                    lampiran: driveInfo ? driveInfo.driveFileUrl : (lampiranData || (editId && !lampiranLocalMode ? (oldItem?.lampiran || null) : null)),
+                    lampiranName: lampiranName || (editId && !lampiranLocalMode ? (oldItem?.lampiranName || null) : null),
+                    driveFileId: driveInfo ? driveInfo.driveFileId : (editId && !lampiranLocalMode ? (oldItem?.driveFileId || null) : null),
                     isDraft: false // Data final dari form selalu bukan draft
                 };
 
@@ -1691,6 +1921,12 @@
                 else data.push(entry);
 
                 try { saveData(data); } catch(err) { return showToast('Penyimpanan penuh!', 'error'); }
+
+                // FITUR EDIT DATA: kelola PDF lama SETELAH data pasti tersimpan:
+                // - ditandai "Hapus PDF" di form edit -> PDF dibuang dari Drive
+                // - diganti PDF baru -> PDF lama ikut dibuang (penggantian file)
+                // - tidak menyentuh PDF -> Drive tidak disentuh sama sekali
+                if (oldItem) try { resolvePendingPdfAction(oldItem, entry); } catch(_) {}
 
                 hideStatus();
                 showToast('Arsip disimpan!');
@@ -1704,10 +1940,16 @@
             }
         });
 
-        function resetForm() { document.getElementById('arsip-form').reset(); document.getElementById('f-edit-id').value = ''; document.getElementById('file-name-display').style.display='none'; document.getElementById('btn-submit').textContent = 'Simpan Arsip'; }
+        function resetForm() { document.getElementById('arsip-form').reset(); document.getElementById('f-edit-id').value = ''; document.getElementById('file-name-display').style.display='none'; document.getElementById('edit-attachment-slot').style.display='none'; document.getElementById('btn-submit').textContent = 'Simpan Arsip'; document.getElementById('btn-reset-form').textContent = 'Reset'; pendingPdfAction = { deleteId: null, deleteName: null }; lampiranLocalMode = false; }
 
         // ===== FITUR BARU: HAPUS ARSIP / DRAFT (hanya bisa setelah login admin) =====
         let deleteTargetId = null;
+
+        // ===== FITUR EDIT DATA: state global =====
+        let currentDetailId = null;                          // arsip yang dibuka di modal detail
+        let pendingPdfAction = { deleteId: null, deleteName: null }; // PDF lama ditandai hapus di form edit
+        let lampiranLocalMode = false;                       // true = PDF lama dihapus via form edit
+        let pdfDeleteCtx = 'form';                           // 'form' | 'detail'
 
         function requestDeleteArchive(id) {
             if (!isFormUnlocked) {
@@ -1725,6 +1967,9 @@
             document.getElementById('delete-item-title').textContent = item.judul || item.nomor || id;
             openModal('delete-modal');
         }
+
+        // FITUR EDIT DATA: konfirmasi hapus PDF dari modal
+        document.getElementById('btn-confirm-delete-pdf').addEventListener('click', confirmDeletePdf);
 
         document.getElementById('btn-confirm-delete').addEventListener('click', () => {
             if (!deleteTargetId) return closeModal('delete-modal');
