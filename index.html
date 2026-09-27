@@ -947,7 +947,7 @@
                                     <input type="radio" name="lampiran-type" value="epub"> 📖 Ebook (EPUB) <small style="color:var(--text-light);">(maks 35MB)</small>
                                 </label>
                             </div>
-                            <p style="font-size:11px; color:var(--text-light); margin-top:8px;">* Maksimal 35MB untuk PDF maupun EPUB. File di atas 10MB dikirim langsung ke Google Drive secara bertahap — aman walau koneksi lambat.</p>
+                            <p style="font-size:11px; color:var(--text-light); margin-top:8px;">* Maksimal 35MB untuk PDF maupun EPUB. File di atas 10MB diunggah secara bertahap — aman walau koneksi lambat.</p>
                             <!-- FITUR EDIT DATA: kartu PDF lama saat mode edit (bisa dihapus lewat tombol sampah) -->
                             <div class="edit-attachment" id="edit-attachment-slot" style="display:none;"></div>
                         </div>
@@ -1006,12 +1006,6 @@
                 </div>
                 <p>Sistem Informasi Arsip Pertanahan (SIAP) Kecamatan Kayuagung — Pencatatan dan pengelolaan Surat Pengakuan Hak Atas Tanah yang mudah, cepat, dan terpusat.</p>
             </div>
-            <div class="footer-col">
-                <h4>Akses Cepat</h4>
-                <p>Data Arsip</p>
-                <p>Tambah Data Baru</p>
-                <p>Panduan Penggunaan</p>
-            </div>
         </div>
     </footer>
 
@@ -1067,7 +1061,7 @@
             <div class="modal-body" style="text-align: center;">
                 <div style="font-size: 44px; margin-bottom: 12px;">📄</div>
                 <p style="margin-bottom: 8px;">Hapus PDF <strong id="delete-pdf-item-title">lampiran</strong> dari arsip ini?</p>
-                <p style="color: var(--danger); font-size: 13px; font-weight: 600;">File PDF-nya juga akan dihapus dari Google Drive.</p>
+                <p style="color: var(--danger); font-size: 13px; font-weight: 600;">File PDF-nya juga akan dihapus permanen.</p>
             </div>
             <div class="modal-footer" style="justify-content: center;">
                 <button class="btn btn-outline" onclick="closeDeletePdfModal()">Batal</button>
@@ -1292,7 +1286,7 @@
             }
             const name = escapeHtml(pending.name || (item && item.lampiranName) || 'Lampiran PDF');
             const fileTitle = pending.deleteId
-                ? `<small>🗑️ PDF lama akan dihapus dari Google Drive saat arsip diperbarui.</small>`
+                ? `<small>🗑️ PDF lama akan dihapus permanen saat arsip diperbarui.</small>`
                 : `<small>Sudah tersimpan — dibiarkan apa adanya jika tidak ingin mengganti.</small>`;
             slot.innerHTML = `
                 <div class="att-name">📎 ${name}${fileTitle}</div>
@@ -1443,7 +1437,7 @@
             const fileName = customName || file.name;
 
             // 1) Minta "tiket sesi" ke Apps Script (request kecil, aman)
-            say('Mempersiapkan unggah langsung ke Drive...');
+            say('Mempersiapkan unggah...');
             const sessionParams = new URLSearchParams();
             sessionParams.set('action', 'session');
             sessionParams.set('name', fileName);
@@ -1465,7 +1459,7 @@
             while (offset < file.size) {
                 const end = Math.min(offset + DIRECT_CHUNK, file.size);
                 const pct = Math.round((end / file.size) * 100);
-                say(`Mengunggah langsung ke Drive... ${pct}% (${Math.round(end / (1024*1024))}/${Math.round(file.size / (1024*1024))}MB)`);
+                say(`Mengunggah... ${pct}% (${Math.round(end / (1024*1024))}/${Math.round(file.size / (1024*1024))}MB)`);
                 const slice = file.slice(offset, end);
 
                 let okStep = false, sessionReset = false;
@@ -1506,7 +1500,7 @@
                     }
                 }
                 if (sessionReset) continue; // sesi baru — mulai lagi dari awal tanpa error
-                if (!okStep) throw new Error('Koneksi tidak stabil untuk unggah file besar. Coba lagi (progres tidak hilang — Google melanjutkan dari posisi terakhir).');
+                if (!okStep) throw new Error('Koneksi tidak stabil. Coba lagi — unggah dilanjutkan dari posisi terakhir, tidak ulang dari awal.');
                 if (offset !== end && offset < file.size) continue; // posisi diubah oleh resume
                 offset = end;
             }
@@ -1591,7 +1585,7 @@
                             showToast('📎 Lampiran telah tersimpan');
                             return { driveFileId: result.id, driveFileUrl: result.url };
                         }
-                        if (result.ok === false) throw new Error(result.error || 'Gagal unggah ke Drive');
+                        if (result.ok === false) throw new Error(result.error || 'Gagal mengunggah lampiran');
                         // result.ok === 'pending'/'timeout' -> tunggu polling berikutnya
                     }
                     // Konfirmasi tidak diterima dalam 8 detik.
