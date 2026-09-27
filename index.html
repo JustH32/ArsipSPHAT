@@ -937,7 +937,7 @@
                                 <div class="file-name" id="file-name-display" style="display:none;"></div>
                                 <input type="file" id="f-lampiran" accept=".pdf">
                             </div>
-                            <p style="font-size:11px; color:var(--text-light); margin-top:8px;">* Maksimal 1MB per file PDF.</p>
+                            <p style="font-size:11px; color:var(--text-light); margin-top:8px;">* Maksimal 50MB per file PDF. PDF besar (>3MB) otomatis diunggah bertahap — tunggu hingga progres selesai.</p>
                             <!-- FITUR EDIT DATA: kartu PDF lama saat mode edit (bisa dihapus lewat tombol sampah) -->
                             <div class="edit-attachment" id="edit-attachment-slot" style="display:none;"></div>
                         </div>
@@ -1093,7 +1093,7 @@
         const ITEMS_PER_PAGE = 9; // Changed to 9 to fit 3-column grid nicely
         let currentPage = 1;
 
-        const MAX_PDF_MB = 1; // Batas maksimal ukuran PDF (MB)
+        const MAX_PDF_MB = 50; // Batas maksimal ukuran PDF (MB) — PDF besar lewat unggah bertahap
 
         // ===== PENGATURAN GOOGLE DRIVE (Apps Script Web App) =====
         // TUJUAN: file PDF yang diupload otomatis TERSIMPAN DI FOLDER GOOGLE DRIVE ANDA
@@ -1204,11 +1204,15 @@
 
         function generateId() { return Date.now().toString(36) + Math.random().toString(36).substring(2, 8); }
 
-        // ===== UPLOAD PDF KE GOOGLE DRIVE v2 (CORS-safe, maks 1MB) =====
-        // Flow: POST no-cors (fire-and-forget; respons POST Apps Script memang sering
-        // diblokir CORS oleh browser) lalu hasil diambil lewat GET polling ?action=result
-        // (respons GET Apps Script selalu terbaca browser). requestId + CacheService di
-        // sisi server mencegah file duplikat walau Apps Script mengeksekusi doPost 2x.
+        // ===== UPLOAD PDF KE GOOGLE DRIVE v4 (CORS-safe, maks 50MB) =====
+        // Flow PDF kecil (≤3MB): POST no-cors berisi seluruh PDF (fire-and-forget; respons
+        // POST Apps Script memang sering diblokir CORS oleh browser) lalu hasil diambil
+        // lewat GET polling ?action=result (respons GET Apps Script selalu terbaca browser).
+        // Flow PDF besar (>3MB): PDF dipecah ±3MB per potongan → POST ?action=chunk →
+        // server memasukkannya ke SESI RESUMABLE UPLOAD Google Drive. Tiap eksekusi Apps
+        // Script hanya mengurus SATU potongan (±1-3 detik) sehingga limit eksekusi 6 menit
+        // tidak tersentuh. Hasil akhir: GET ?action=chunkstatus → { id, url } file di Drive.
+        // uploadId/requestId di sisi server mencegah file duplikat (doPost kerap jalan 2x).
         // =====================================================================
         // ===== FITUR EDIT DATA (✏️) — ubah arsip yang sudah ada ==============
         // =====================================================================
@@ -1348,7 +1352,50 @@
             }
         }
 
-        // ===== FITUR EDIT DATA ==============================================
+        // ===== UPLOAD CORE (dipakai form arsip & draft) =====================
+        const CHUNK_THRESHOLD_MB = 3;           // ≤ ini: alur lama satu-kirim
+        const CHUNK_SIZE = 3 * 1024 * 1024;     // ±3MB per potongan (byte PDF asli)
+
+        // POST no-cors ke Apps Script (respons opaque — keberhasilan diverifikasi lewat GET).
+        async function postNoCors(url, params) {
+            await fetch(url, {
+                method: 'POST',
+                mode: 'no-cors',
+                // PENTING: x-www-form-urlencoded agar e.parameter terbaca Apps Script
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                body: params.toString()
+            });
+        }
+
+        // GET JSON dengan fallback JSONP (script tag) — 100% bebas blokir CORS.
+        async function getJsonWithJsonp(url) {
+            try {
+                const r = await fetch(url);
+                return await r.json();
+            } catch (_) {
+                return await new Promise((resolve) => {
+                    const fn = 'siapJsonpCb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+                    const scriptTag = document.createElement('script');
+                    const timer = setTimeout(() => { cleanup(); resolve({ ok: 'timeout' }); }, 8000);
+                    function cleanup() { delete window[fn]; scriptTag.remove(); clearTimeout(timer); }
+                    window[fn] = (d) => { cleanup(); resolve(d); };
+                    scriptTag.onerror = () => { cleanup(); resolve({ ok: 'timeout' }); };
+                    scriptTag.src = url + (url.indexOf('?') > -1 ? '&' : '?') + 'callback=' + fn;
+                    document.body.appendChild(scriptTag);
+                });
+            }
+        }
+
+        // Baca irisan file sebagai base64 murni (FileReader.readAsDataURL → buang prefiks data:).
+        function readSliceBase64(file, start, end) {
+            return new Promise((res, rej) => {
+                const r = new FileReader();
+                r.onload = () => res(r.result.split(',')[1]);
+                r.onerror = rej;
+                r.readAsDataURL(file.slice(start, end));
+            });
+        }
+
         async function uploadPdfToDrive(file, onStatus, customName) {
             // Batas ukuran berlaku SELALU (baik mode Drive maupun mode lokal)
             if (file.size > MAX_PDF_MB * 1024 * 1024) {
@@ -1360,64 +1407,132 @@
             const settings = getDriveSettings();
             if (!settings.driveScriptUrl) return null; // Drive belum dikonfigurasi -> pakai mode lokal
 
-            say('Membaca file PDF...');
-            const base64 = await new Promise((res, rej) => {
-                const r = new FileReader();
-                r.onload = () => res(r.result.split(',')[1]);
-                r.onerror = rej;
-                r.readAsDataURL(file);
-            });
-
-            const requestId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-            try {
-                // 1) Kirim PDF. no-cors: request pasti terkirim, respons opaque — itu normal.
-                say('Mengunggah PDF...');
-                const params = new URLSearchParams();
-                params.set('data', base64);
-                params.set('name', customName || file.name); // rename otomatis: Judul - Nomor.pdf
-                params.set('requestId', requestId);
-                if (settings.folderId) params.set('folderId', settings.folderId);
-                await fetch(settings.driveScriptUrl, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    // PENTING: x-www-form-urlencoded agar e.parameter terbaca Apps Script
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-                    body: params.toString()
+            // ---------- PDF KECIL (≤ 3MB): alur lama, satu kali kirim ----------
+            if (file.size <= CHUNK_THRESHOLD_MB * 1024 * 1024) {
+                say('Membaca file PDF...');
+                const base64 = await new Promise((res, rej) => {
+                    const r = new FileReader();
+                    r.onload = () => res(r.result.split(',')[1]);
+                    r.onerror = rej;
+                    r.readAsDataURL(file);
                 });
 
-                // 2) Polling hasil via GET, dengan fallback JSONP (script tag) — 100% bebas blokir CORS
-                for (let i = 0; i < 8; i++) {
-                    await new Promise(res => setTimeout(res, 1000));
-                    say(`Memproses PDF... (${i + 1}d)`);
-                    let result = null;
-                    try {
-                        const r = await fetch(settings.driveScriptUrl + '?action=result&requestId=' + encodeURIComponent(requestId));
-                        result = await r.json();
-                    } catch (_) {
-                        result = await new Promise((resolve) => {
-                            const fn = 'siapJsonpCb_' + Date.now() + '_' + i;
-                            const scriptTag = document.createElement('script');
-                            const timer = setTimeout(() => { cleanup(); resolve({ ok: 'timeout' }); }, 8000);
-                            function cleanup() { delete window[fn]; scriptTag.remove(); clearTimeout(timer); }
-                            window[fn] = (d) => { cleanup(); resolve(d); };
-                            scriptTag.onerror = () => { cleanup(); resolve({ ok: 'timeout' }); };
-                            scriptTag.src = settings.driveScriptUrl + '?action=result&requestId=' + encodeURIComponent(requestId) + '&callback=' + fn;
-                            document.body.appendChild(scriptTag);
-                        });
+                const requestId = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+                try {
+                    // 1) Kirim PDF. no-cors: request pasti terkirim, respons opaque — itu normal.
+                    say('Mengunggah PDF...');
+                    const params = new URLSearchParams();
+                    params.set('data', base64);
+                    params.set('name', customName || file.name); // rename otomatis: Judul - Nomor.pdf
+                    params.set('requestId', requestId);
+                    if (settings.folderId) params.set('folderId', settings.folderId);
+                    await postNoCors(settings.driveScriptUrl, params);
+
+                    // 2) Polling hasil via GET (+ fallback JSONP) — 100% bebas blokir CORS
+                    for (let i = 0; i < 8; i++) {
+                        await new Promise(res => setTimeout(res, 1000));
+                        say(`Memproses PDF... (${i + 1}d)`);
+                        const result = await getJsonWithJsonp(settings.driveScriptUrl + '?action=result&requestId=' + encodeURIComponent(requestId));
+                        if (result.ok === true) {
+                            showToast('📎 PDF telah tersimpan');
+                            return { driveFileId: result.id, driveFileUrl: result.url };
+                        }
+                        if (result.ok === false) throw new Error(result.error || 'Gagal unggah ke Drive');
+                        // result.ok === 'pending'/'timeout' -> tunggu polling berikutnya
                     }
-                    if (result.ok === true) {
-                        showToast('📎 PDF telah tersimpan');
-                        return { driveFileId: result.id, driveFileUrl: result.url };
-                    }
-                    if (result.ok === false) throw new Error(result.error || 'Gagal unggah ke Drive');
-                    // result.ok === 'pending'/'timeout' -> tunggu polling berikutnya
+                    // Konfirmasi tidak diterima dalam 8 detik.
+                    // PDF kemungkinan besar TETAP masuk Drive — arsip tetap disimpan (PDF lokal).
+                    showToast('📎 PDF telah tersimpan');
+                    return null;
+                } catch (e) {
+                    showToast('📎 PDF telah tersimpan');
+                    return null;
                 }
-                // Konfirmasi tidak diterima dalam 8 detik.
-                // PDF kemungkinan besar TETAP masuk Drive — arsip tetap disimpan (PDF lokal).
+            }
+
+            // ---------- PDF BESAR (> 3MB): unggah bertahap (chunk) ----------
+            try {
+                // PENTING: uploadId HARUS diawali timestamp (angka) — server memakai
+                // angka di akhir kunci sesi untuk membersihkan sesi basi otomatis.
+                const uploadId = Date.now() + Math.random().toString(36).substring(2, 10);
+                const total = Math.ceil(file.size / CHUNK_SIZE);
+                const fileName = customName || file.name;
+
+                // 1) Mulai sesi (server membuat SESI RESUMABLE UPLOAD Google Drive)
+                say('Mempersiapkan unggah PDF besar...');
+                const initParams = new URLSearchParams();
+                initParams.set('action', 'chunk');
+                initParams.set('uploadId', uploadId);
+                initParams.set('name', fileName);
+                initParams.set('size', String(file.size));
+                initParams.set('chunkSize', String(CHUNK_SIZE));
+                if (settings.folderId) initParams.set('folderId', settings.folderId);
+
+                let session = null;
+                for (let attempt = 0; attempt < 3 && !session; attempt++) {
+                    if (attempt > 0) await new Promise(res => setTimeout(res, 800));
+                    await postNoCors(settings.driveScriptUrl, initParams);
+                    for (let w = 0; w < 6; w++) {
+                        await new Promise(res => setTimeout(res, 700));
+                        const st = await getJsonWithJsonp(settings.driveScriptUrl + '?action=chunkstatus&uploadId=' + encodeURIComponent(uploadId));
+                        if (st && st.ok === true) { session = st; break; }
+                    }
+                }
+                if (!session) throw new Error('Server tidak merespons saat memulai unggah PDF.');
+
+                // 2) Kirim potongan demi potongan — server menentukan urutan & pengulangan
+                let idx = (typeof session.nextIndex === 'number') ? session.nextIndex : 0;
+                while (idx < total) {
+                    const start = idx * CHUNK_SIZE;
+                    const end = Math.min(start + CHUNK_SIZE, file.size);
+                    say(`Mengunggah PDF besar... bagian ${idx + 1}/${total} (${Math.round(end / (1024*1024))}MB)`);
+                    const b64 = await readSliceBase64(file, start, end);
+
+                    let delivered = false;
+                    for (let attempt = 0; attempt < 3 && !delivered; attempt++) {
+                        if (attempt > 0) await new Promise(res => setTimeout(res, 1000)); // jeda sebelum kirim ulang
+                        const params = new URLSearchParams();
+                        params.set('action', 'chunk');
+                        params.set('uploadId', uploadId);
+                        params.set('index', String(idx));
+                        if (idx === total - 1) params.set('last', '1');
+                        params.set('data', b64);
+                        await postNoCors(settings.driveScriptUrl, params);
+
+                        // Verifikasi via chunkstatus: sudah diterima server atau belum?
+                        for (let w = 0; w < 5; w++) {
+                            await new Promise(res => setTimeout(res, 700));
+                            const st = await getJsonWithJsonp(settings.driveScriptUrl + '?action=chunkstatus&uploadId=' + encodeURIComponent(uploadId));
+                            if (st && st.ok === true) {
+                                if (st.done) {
+                                    showToast('📎 PDF telah tersimpan');
+                                    return { driveFileId: st.id, driveFileUrl: st.url };
+                                }
+                                if (typeof st.nextIndex === 'number' && st.nextIndex > idx) {
+                                    idx = st.nextIndex;
+                                    delivered = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!delivered) throw new Error('Gagal mengirim bagian ' + (idx + 1) + '/' + total + '. Periksa koneksi internet lalu coba simpan lagi.');
+                }
+
+                // 3) Pastikan file selesai dibentuk di Drive (ambil fileId-nya)
+                for (let i = 0; i < 10; i++) {
+                    const st = await getJsonWithJsonp(settings.driveScriptUrl + '?action=chunkstatus&uploadId=' + encodeURIComponent(uploadId));
+                    if (st && st.ok === true && st.done) {
+                        showToast('📎 PDF telah tersimpan');
+                        return { driveFileId: st.id, driveFileUrl: st.url };
+                    }
+                    await new Promise(res => setTimeout(res, 1000));
+                }
+                // Konfirmasi akhir tak diterima — PDF kemungkinan tetap utuh di Drive.
                 showToast('📎 PDF telah tersimpan');
                 return null;
             } catch (e) {
-                showToast('📎 PDF telah tersimpan');
+                showToast(String((e && e.message) || e), 'error');
                 return null;
             }
         }
@@ -1466,6 +1581,11 @@
                         lampiranName = fileInput.files[0].name;
                         driveFileId = driveInfo.driveFileId;
                     } else {
+                        // PDF besar butuh Drive: jangan pernah simpan data URL raksasa di localStorage
+                        if (fileInput.files[0].size > 2 * 1024 * 1024) {
+                            showToast('Unggah PDF besar gagal & PDF >2MB tidak bisa disimpan lokal. Coba lagi dengan koneksi stabil atau gunakan PDF lebih kecil.', 'error');
+                            return;
+                        }
                         // Fallback: Drive belum diatur / konfirmasi tak diterima -> simpan lokal
                         showStatus('Menyimpan PDF pada draft (lokal)...');
                         try {
@@ -1890,6 +2010,11 @@
                         lampiranName = files[0].name;
                         showStatus('PDF terunggah. Menyimpan arsip...');
                     } else {
+                        // PDF besar butuh Drive: jangan pernah simpan data URL raksasa di localStorage
+                        if (files[0].size > 2 * 1024 * 1024) {
+                            showToast('Unggah PDF besar gagal & PDF >2MB tidak bisa disimpan lokal. Coba lagi dengan koneksi stabil atau gunakan PDF lebih kecil.', 'error');
+                            return;
+                        }
                         // Fallback: Drive belum diatur / gagal / konfirmasi tak diterima -> simpan PDF lokal
                         showStatus('Menyimpan PDF pada arsip (lokal)...');
                         try {
