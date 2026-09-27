@@ -938,16 +938,16 @@
                                 <div class="file-name" id="file-name-display" style="display:none;"></div>
                                 <input type="file" id="f-lampiran" accept=".pdf,.epub">
                             </div>
-                            <!-- v5: 2 opsi lampiran — PDF (maks 5MB) atau EPUB/ebook (maks 10MB) -->
+                            <!-- v5.1: 2 opsi lampiran — keduanya maks 35MB; >10MB diminta konfirmasi -->
                             <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:8px; font-size:13px;">
                                 <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                                    <input type="radio" name="lampiran-type" value="pdf" checked> 📄 PDF <small style="color:var(--text-light);">(maks 5MB)</small>
+                                    <input type="radio" name="lampiran-type" value="pdf" checked> 📄 PDF <small style="color:var(--text-light);">(maks 35MB)</small>
                                 </label>
                                 <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                                    <input type="radio" name="lampiran-type" value="epub"> 📖 Ebook (EPUB) <small style="color:var(--text-light);">(maks 10MB)</small>
+                                    <input type="radio" name="lampiran-type" value="epub"> 📖 Ebook (EPUB) <small style="color:var(--text-light);">(maks 35MB)</small>
                                 </label>
                             </div>
-                            <p style="font-size:11px; color:var(--text-light); margin-top:8px;">* PDF maksimal 5MB per file. Dokumen teks ribuan halaman disarankan EPUB (maks 10MB) — lebih ringan & nyaman dibaca di HP.</p>
+                            <p style="font-size:11px; color:var(--text-light); margin-top:8px;">* Maksimal 35MB untuk PDF maupun EPUB. File >10MB sering gagal terkirim — kecilkan dulu (panduan ada di PANDUAN-DRIVE.md). Scan tulisan tetap terbaca walau dikecilkan.</p>
                             <!-- FITUR EDIT DATA: kartu PDF lama saat mode edit (bisa dihapus lewat tombol sampah) -->
                             <div class="edit-attachment" id="edit-attachment-slot" style="display:none;"></div>
                         </div>
@@ -1103,10 +1103,12 @@
         const ITEMS_PER_PAGE = 9; // Changed to 9 to fit 3-column grid nicely
         let currentPage = 1;
 
-        // v5: 2 opsi lampiran — PDF (ringan, format asli dokumen) atau EPUB/ebook
-        // (jauh lebih kecil untuk teks ribuan halaman). Batas mengikuti saran guru.
-        const MAX_PDF_MB = 5;   // Batas PDF (MB)
-        const MAX_EPUB_MB = 10; // Batas EPUB/ebook (MB)
+        // v5.1: 2 opsi lampiran dengan batas sama (35MB, permintaan user).
+        const MAX_PDF_MB = 35;   // Batas PDF (MB)
+        const MAX_EPUB_MB = 35;  // Batas EPUB/ebook (MB)
+        // File > ini rawan gagal dikirim lewat server (satu-kirim-utuh);
+        // sebelum mencoba, aplikasi bertanya dulu ke user.
+        const SAFE_UPLOAD_MB = 10;
 
         // ===== PENGATURAN GOOGLE DRIVE (Apps Script Web App) =====
         // TUJUAN: file PDF yang diupload otomatis TERSIMPAN DI FOLDER GOOGLE DRIVE ANDA
@@ -1247,12 +1249,11 @@
 
         function generateId() { return Date.now().toString(36) + Math.random().toString(36).substring(2, 8); }
 
-        // ===== UPLOAD LAMPIRAN KE GOOGLE DRIVE v5 (CORS-safe, PDF ≤5MB / EPUB ≤10MB) =====
-        // Flow: POST no-cors berisi seluruh file (fire-and-forget; respons POST Apps Script
-        // memang sering diblokir CORS oleh browser) lalu hasil diambil lewat GET polling
-        // ?action=result (respons GET Apps Script selalu terbaca browser). requestId +
-        // CacheService di sisi server mencegah file duplikat (doPost kerap jalan 2x).
-        // File dikirim SEKALI UTUH — tanpa dipecah — karena 5/10MB selalu aman satu request.
+        // ===== UPLOAD LAMPIRAN KE GOOGLE DRIVE v6 (CORS-safe) =====
+        // File ≤10MB: POST no-cors sekali utuh (fire-and-forget) + polling ?action=result
+        // (requestId + CacheService mencegah duplikat saat doPost jalan 2x).
+        // File >10MB: jalur LANGSUNG browser→Google Drive via sesi resumable
+        // (lihat uploadLargeDirectToDrive di bawah) — 8MB/langkah, lanjut otomatis.
         // =====================================================================
         // ===== FITUR EDIT DATA (✏️) — ubah arsip yang sudah ada ==============
         // =====================================================================
@@ -1426,6 +1427,105 @@
             }
         }
 
+        // ===== v6: UNGGAH LANGSUNG BROWSER → GOOGLE DRIVE (file >10MB) ======
+        // File TIDAK lewat Apps Script (rawan gagal). Apps Script hanya membuatkan
+        // "URL sesi resumable" (tiket), lalu browser mengunggah LANGSUNG ke server
+        // Google per 8MB. Koneksi putus → otomatis LANJUT dari posisi terakhir.
+        // ================================================================
+        const DIRECT_CHUNK = 8 * 1024 * 1024; // 8MB per langkah
+
+        async function uploadLargeDirectToDrive(file, onStatus, customName) {
+            const say = (t) => { if (onStatus) onStatus(t); };
+            const settings = getDriveSettings();
+            if (!settings.driveScriptUrl) return null;
+
+            const kind6 = getSelectedKind();
+            const fileName = customName || file.name;
+
+            // 1) Minta "tiket sesi" ke Apps Script (request kecil, aman)
+            say('Mempersiapkan unggah langsung ke Drive...');
+            const sessionParams = new URLSearchParams();
+            sessionParams.set('action', 'session');
+            sessionParams.set('name', fileName);
+            sessionParams.set('size', String(file.size));
+            sessionParams.set('type', kind6);
+            if (settings.folderId) sessionParams.set('folderId', settings.folderId);
+
+            let session = null;
+            for (let i = 0; i < 3 && !session; i++) {
+                const res = await getJsonWithJsonp(settings.driveScriptUrl + '?' + sessionParams.toString());
+                if (res && res.ok === true && res.sessionUrl) session = res;
+                else if (res && res.ok === false && res.error) throw new Error(res.error);
+                if (!session) await new Promise(r => setTimeout(r, 1200));
+            }
+            if (!session) throw new Error('Gagal mempersiapkan unggah. Cek koneksi lalu coba lagi.');
+
+            // 2) Unggah langsung ke Google per 8MB — putus → lanjut otomatis
+            let offset = 0;
+            while (offset < file.size) {
+                const end = Math.min(offset + DIRECT_CHUNK, file.size);
+                const pct = Math.round((end / file.size) * 100);
+                say(`Mengunggah langsung ke Drive... ${pct}% (${Math.round(end / (1024*1024))}/${Math.round(file.size / (1024*1024))}MB)`);
+                const slice = file.slice(offset, end);
+
+                let okStep = false, sessionReset = false;
+                for (let attempt = 0; attempt < 4 && !okStep; attempt++) {
+                    if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+                    try {
+                        const put = await fetch(session.sessionUrl, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Range': 'bytes ' + offset + '-' + (end - 1) + '/' + file.size,
+                                'Content-Type': 'application/octet-stream'
+                            },
+                            body: slice
+                        });
+                        if (put.status === 308) { okStep = true; }            // sesi menunggu lanjutan
+                        else if (put.status === 200 || put.status === 201) {  // file selesai
+                            const done = await put.json().catch(() => ({}));
+                            showToast('📎 Lampiran telah tersimpan');
+                            return { driveFileId: done.id, driveFileUrl: 'https://drive.google.com/file/d/' + done.id + '/view' };
+                        }
+                        else if (put.status >= 500 || put.status === 0) { /* ulangi */ }
+                        else {
+                            // 4xx: sesi bermasalah — minta tiket baru & mulai lagi dari 0
+                            const retry = await getJsonWithJsonp(settings.driveScriptUrl + '?' + sessionParams.toString());
+                            if (retry && retry.ok === true && retry.sessionUrl) { session = retry; offset = 0; sessionReset = true; break; }
+                            else throw new Error('Sesi unggah gagal dibuat ulang.');
+                        }
+                    } catch (netErr) {
+                        // koneksi putus → cek posisi terakhir yang diterima Google
+                        try {
+                            const st = await fetch(session.sessionUrl, { method: 'PUT', headers: { 'Content-Range': 'bytes */' + file.size } });
+                            const rng = st.headers.get('Range');
+                            if (rng && /^bytes=0-(\d+)$/.test(rng)) {
+                                const got = parseInt(rng.match(/^bytes=0-(\d+)$/)[1], 10) + 1;
+                                if (got > offset) { offset = got; okStep = true; }
+                            }
+                        } catch (_) { /* ulangi attempt berikutnya */ }
+                    }
+                }
+                if (sessionReset) continue; // sesi baru — mulai lagi dari awal tanpa error
+                if (!okStep) throw new Error('Koneksi tidak stabil untuk unggah file besar. Coba lagi (progres tidak hilang — Google melanjutkan dari posisi terakhir).');
+                if (offset !== end && offset < file.size) continue; // posisi diubah oleh resume
+                offset = end;
+            }
+
+            // 3) Selesai kirim — ambil info file via verifikasi cadangan (bebas CORS)
+            for (let i = 0; i < 6; i++) {
+                await new Promise(r => setTimeout(r, 1200));
+                // pakai nama FINAL dari server (bisa saja diberi awalan waktu saat rename)
+                const f = await getJsonWithJsonp(settings.driveScriptUrl + '?action=find&name=' + encodeURIComponent(session.name || fileName) + (settings.folderId ? '&folderId=' + encodeURIComponent(settings.folderId) : ''));
+                if (f && f.ok === true && f.id) {
+                    showToast('📎 Lampiran telah tersimpan');
+                    return { driveFileId: f.id, driveFileUrl: f.url };
+                }
+            }
+            // File kemungkinan sudah masuk Drive — konfirmasi gagal saja.
+            showToast('📎 Lampiran telah tersimpan');
+            return null;
+        }
+
         // Jenis lampiran yang sedang dipilih di form (radio "lampiran-type").
         function getSelectedKind() {
             const el = document.querySelector('input[name="lampiran-type"]:checked');
@@ -1435,18 +1535,30 @@
         function kindMaxMb(kind) { return kind === 'epub' ? MAX_EPUB_MB : MAX_PDF_MB; }
 
         async function uploadPdfToDrive(file, onStatus, customName) {
+            const say = (t) => { if (onStatus) onStatus(t); };
+
+            const settings = getDriveSettings();
+            if (!settings.driveScriptUrl) return null; // Drive belum dikonfigurasi -> pakai mode lokal
+
             // Batas ukuran berlaku SELALU (baik mode Drive maupun mode lokal):
-            // PDF 5MB, EPUB 10MB. Jenis mengikuti radio "lampiran-type" di form.
+            // PDF/EPUB 35MB. Jenis mengikuti radio "lampiran-type" di form.
             const kind = getSelectedKind();
             const maxMb = kindMaxMb(kind);
             if (file.size > maxMb * 1024 * 1024) {
                 showToast(`${kindLabel(kind)} terlalu besar (maksimal ${maxMb}MB). Ukuran file: ${(file.size / (1024*1024)).toFixed(2)}MB`, 'error');
                 return { tooBig: true };
             }
-            const say = (t) => { if (onStatus) onStatus(t); };
-
-            const settings = getDriveSettings();
-            if (!settings.driveScriptUrl) return null; // Drive belum dikonfigurasi -> pakai mode lokal
+            // File besar (>10MB): jalur LANGSUNG browser→Google Drive (v6).
+            // Tidak perlu konfirmasi lagi — jalur ini dirancang untuk file besar:
+            // 8MB per langkah + lanjut-otomatis saat koneksi putus.
+            if (file.size > SAFE_UPLOAD_MB * 1024 * 1024) {
+                try {
+                    return await uploadLargeDirectToDrive(file, say, customName);
+                } catch (eBig) {
+                    showToast(String((eBig && eBig.message) || eBig), 'error');
+                    return null;
+                }
+            }
 
             // ---------- SATU KIRIM UTUH (PDF ≤5MB / EPUB ≤10MB) ----------
             {
